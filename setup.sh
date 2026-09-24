@@ -14,4 +14,21 @@ BASE=https://storage.googleapis.com/mediapipe-models
 [ -f models/face_landmarker.task ] || curl -L -o models/face_landmarker.task "$BASE/face_landmarker/face_landmarker/float16/latest/face_landmarker.task"
 [ -f models/pose_landmarker_lite.task ] || curl -L -o models/pose_landmarker_lite.task "$BASE/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task"
 [ -f models/hand_landmarker.task ] || curl -L -o models/hand_landmarker.task "$BASE/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task"
+
+# macOS: Homebrew の Python.app には NSCameraUsageDescription が無い。これが無いと
+# macOS はカメラの許可ダイアログを出さずに黙って拒否し、アプリは「カメラ停止中」のままになる。
+# （Python を入れ直すと消えるので、その時は setup.sh をもう一度実行する）
+if [ "$(uname -s)" = "Darwin" ]; then
+  PLIST=$(.venv/bin/python -c 'import os, sys; print(os.path.join(sys.base_prefix, "Resources", "Python.app", "Contents", "Info.plist"))')
+  if [ -f "$PLIST" ] && ! /usr/libexec/PlistBuddy -c "Print :NSCameraUsageDescription" "$PLIST" >/dev/null 2>&1; then
+    if /usr/libexec/PlistBuddy -c "Add :NSCameraUsageDescription string 'FACE WINDOWS が顔を検出するためにカメラを使用します。'" "$PLIST" >/dev/null 2>&1; then
+      tccutil reset Camera org.python.python >/dev/null 2>&1 || true
+      echo "カメラ利用の説明文を Python に追加しました: $PLIST"
+    else
+      echo "※ $PLIST に書き込めず、カメラ許可のダイアログが出ない可能性があります。"
+      echo "  その場合は NSCameraUsageDescription を手動で追加してください。"
+    fi
+  fi
+fi
+
 echo "セットアップ完了。./run.sh で起動します。"

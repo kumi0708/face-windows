@@ -18,7 +18,7 @@ CAMERA_KEYS = ("camera_index", "camera_res", "camera_fps")
 
 # ---------------- 子プロセス ----------------
 def worker_main(data_conn, ctrl_conn, settings: dict, source: str | None) -> None:
-    from .camera import Camera
+    from .camera import Camera, warmup_mac_authorization
     from .tracker import Tracker
 
     def open_cam():
@@ -26,6 +26,8 @@ def worker_main(data_conn, ctrl_conn, settings: dict, source: str | None) -> Non
         c.start()
         return c
 
+    if source is None:
+        warmup_mac_authorization(int(settings["camera_index"]))
     cam = open_cam()
     tr = Tracker(cam, settings)
     tr.start()

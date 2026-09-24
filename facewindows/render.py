@@ -75,7 +75,9 @@ def make_titlebar(style: str, w: int, title: str) -> QPixmap | None:
             p.drawLine(gx - 2 * gw - 4, cy, gx - 2 * gw + 4, cy)
         reserve, tx = (90 if w >= 110 else 6), 7
     p.setPen(QColor(text))
-    f = QFont("Segoe UI", 8)
+    f = QFont()
+    f.setFamilies(["Segoe UI", "Hiragino Sans", "Helvetica Neue"])   # Segoe UI が無い macOS 用の控え
+    f.setPointSize(8)
     f.setBold(style == "retro")
     p.setFont(f)
     avail = max(10, pw - reserve - (tx if style == "macos" else 0))

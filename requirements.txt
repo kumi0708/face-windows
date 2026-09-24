@@ -1,4 +1,8 @@
-mediapipe==1.0.1
+mediapipe==1.0.1; sys_platform != "darwin"
+# macOS (Apple Silicon): 1.0.x は CPU delegate でも Metal サービス未登録のまま
+# TensorsToDetectionsCalculator が落ちる既知の回帰があるため 0.10 系に固定
+# https://github.com/google-ai-edge/mediapipe/issues/6356
+mediapipe==0.10.35; sys_platform == "darwin"
 opencv-contrib-python==5.0.0.93
 PySide6==6.11.2
 numpy>=2.0

@@ -1,6 +1,8 @@
 """カメラ取得スレッド。最新フレームのみ保持し、古いフレームは溜めない。"""
 from __future__ import annotations
 
+import contextlib
+import os
 import sys
 import threading
 import time
@@ -13,6 +15,21 @@ IS_MAC = sys.platform == "darwin"
 BACKEND = cv2.CAP_DSHOW if IS_WINDOWS else cv2.CAP_AVFOUNDATION if IS_MAC else cv2.CAP_ANY
 
 
+@contextlib.contextmanager
+def _quiet_stderr():
+    """番号の総当たりでは存在しない番号で必ず失敗し、OpenCV が C 側から直接
+    「camera failed to properly initialize!」と書く。異常に見えるので探索中だけ捨てる。"""
+    sys.stderr.flush()
+    saved, devnull = os.dup(2), os.open(os.devnull, os.O_WRONLY)
+    try:
+        os.dup2(devnull, 2)
+        yield
+    finally:
+        os.dup2(saved, 2)
+        os.close(devnull)
+        os.close(saved)
+
+
 def list_cameras(max_probe: int = 4) -> list[tuple[int, str]]:
     """(index, 名前) の一覧。Windows は DirectShow の名前、それ以外は番号を順に開いて確かめる。"""
     if IS_WINDOWS:
@@ -22,12 +39,27 @@ def list_cameras(max_probe: int = 4) -> list[tuple[int, str]]:
         except Exception:
             pass
     found = []
-    for i in range(max_probe):
-        cap = cv2.VideoCapture(i, BACKEND)
-        if cap.isOpened():
-            found.append((i, f"Camera {i}"))
-        cap.release()
+    with _quiet_stderr():
+        for i in range(max_probe):
+            cap = cv2.VideoCapture(i, BACKEND)
+            ok = cap.isOpened()
+            cap.release()
+            if ok:
+                found.append((i, f"Camera {i}"))
+            elif IS_MAC and found:
+                break   # AVFoundation の番号は連番。見つかった分の先は存在しない
+                        # （0 番が使用中・権限待ちで開けない場合があるので、1台も無い間は続ける）
     return found
+
+
+def warmup_mac_authorization(index: int) -> None:
+    """macOS の AVFoundation 権限ダイアログはメインスレッドの run loop からしか出せない。
+    Camera はバックグラウンドスレッドで開くため、その前に呼び出し元のスレッド（プロセスの
+    メインスレッド）で一度だけ開いて閉じ、権限リクエストをここで済ませておく。"""
+    if not IS_MAC:
+        return
+    cap = cv2.VideoCapture(index, BACKEND)
+    cap.release()
 
 
 class Camera(threading.Thread):
