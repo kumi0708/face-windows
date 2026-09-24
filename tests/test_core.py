@@ -1,0 +1,225 @@
+"""Qt 画面やカメラを使わずに検証できる部分のテスト（設定・切り抜き幾何・シミュレーション）。"""
+import math
+import sys
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from facewindows import config, geometry as geo  # noqa: E402
+from facewindows.engine import Engine  # noqa: E402
+from facewindows.tracker import PartState, Snapshot  # noqa: E402
+
+
+def make_snap(parts=("face", "left_eye", "right_eye", "nose", "mouth")):
+    img = object()  # 描画しないので画像は何でもよい
+    return Snapshot(parts={p: PartState(img, (0.5, 0.5), 0.2, True) for p in parts},
+                    face_center=(0.5, 0.5))
+
+
+def make_engine(**over):
+    s = config.defaults()
+    s.update(over)
+    e = Engine(s)
+    e.rect = (0.0, 0.0, 1600.0, 900.0)
+    e.running = True
+    return e
+
+
+# ---------- config ----------
+def test_sanitize_rejects_bad_values():
+    s = config.sanitize({"max_windows": "50", "motion_mode": "nope", "unknown": 1, "mirror": 0,
+                         "spawn_rate": "abc"})
+    assert s["max_windows"] == 50
+    assert s["motion_mode"] == config.DEFAULTS["motion_mode"]
+    assert "unknown" not in s
+    assert s["mirror"] is False
+    assert s["spawn_rate"] == config.DEFAULTS["spawn_rate"]
+
+
+def test_save_load_roundtrip(tmp_path):
+    s = config.defaults()
+    s["max_windows"] = 321
+    s["window_style"] = "retro"
+    p = tmp_path / "s.json"
+    config.save(s, p)
+    assert config.load(p) == s
+
+
+def test_preset_keeps_camera_settings():
+    cur = config.defaults()
+    cur["camera_index"] = 2
+    cur["mirror"] = False
+    out = config.apply_preset(cur, "高速増殖")
+    assert out["camera_index"] == 2 and out["mirror"] is False
+    assert out["max_windows"] == config.BUILTIN_PRESETS["高速増殖"]["max_windows"]
+
+
+def test_builtin_presets_are_valid_keys():
+    for vals in config.BUILTIN_PRESETS.values():
+        assert set(vals) <= set(config.DEFAULTS)
+
+
+# ---------- geometry ----------
+def test_box_aspect_and_padding():
+    pts = np.array([[100, 100], [200, 100], [200, 150], [100, 150]], dtype=np.float32)
+    for part in ("mouth", "face", "nose"):
+        b = geo.box_from_points(pts, part)
+        assert b.w / b.h == pytest.approx(geo.PART_SHAPE[part][0], rel=1e-3)
+        assert b.w >= 100 and b.h >= 50
+        assert (b.cx, b.cy) == pytest.approx((150, 125))
+
+
+def test_rotated_box_contains_points():
+    ang = math.radians(20)
+    pts = np.array([[0, 0], [100, 0], [100, 40], [0, 40]], dtype=np.float32)
+    rot = np.array([[math.cos(ang), -math.sin(ang)], [math.sin(ang), math.cos(ang)]])
+    pts = pts @ rot.T + 300
+    b = geo.box_from_points(pts, "mouth", ang)
+    # 回転を戻した座標で全点が枠内
+    c, s = math.cos(ang), math.sin(ang)
+    for x, y in pts:
+        dx, dy = x - b.cx, y - b.cy
+        assert abs(dx * c + dy * s) <= b.w / 2 + 1e-3
+        assert abs(-dx * s + dy * c) <= b.h / 2 + 1e-3
+
+
+def test_crop_mirror_and_orientation():
+    frame = np.zeros((100, 200, 3), np.uint8)
+    frame[:, :100] = (255, 0, 0)       # 左半分が青
+    box = geo.Box(100, 50, 100, 50)
+    plain = geo.crop(frame, box, (40, 20), mirror=False)
+    mir = geo.crop(frame, box, (40, 20), mirror=True)
+    assert plain[10, 5, 0] == 255 and plain[10, 35, 0] == 0
+    assert mir[10, 5, 0] == 0 and mir[10, 35, 0] == 255
+
+
+def test_norm_center_mirror():
+    b = geo.Box(40, 50, 10, 10)
+    assert geo.norm_center(b, 200, 100, False) == pytest.approx((0.2, 0.5))
+    assert geo.norm_center(b, 200, 100, True) == pytest.approx((0.8, 0.5))
+
+
+def test_left_right_eye_landmark_sets_are_person_based():
+    # 人物の右目は 33 側（生画像では画面左）
+    assert 33 in geo.RIGHT_EYE and 263 in geo.LEFT_EYE
+
+
+def test_mouth_openness():
+    pts = np.zeros((478, 2), np.float32)
+    pts[61], pts[291] = (0, 0), (100, 0)
+    pts[13], pts[14] = (50, -5), (50, 45)
+    assert geo.mouth_openness(pts) == pytest.approx(0.5)
+
+
+# ---------- engine ----------
+def test_spawn_respects_max_and_recycles():
+    e = make_engine(max_windows=30, spawn_rate=1000.0, motion_enabled=False, adaptive=False)
+    snap = make_snap()
+    t = 0.0
+    for _ in range(200):
+        t += 1 / 60
+        e.update(1 / 60, t, snap)
+        assert len(e.wins) <= 30
+    assert len(e.wins) == 30
+
+
+def test_burst_is_capped():
+    e = make_engine(max_windows=50, adaptive=False)
+    e.burst(make_snap(), 0.0, 10_000)
+    assert len(e.wins) == 50
+
+
+def test_all_parts_off_spawns_nothing():
+    over = {f"track_{k}": False for k in config.PART_TOGGLES}
+    e = make_engine(spawn_rate=500.0, motion_enabled=False, **over)
+    snap = make_snap()
+    for i in range(30):
+        e.update(1 / 30, i / 30, snap)
+    assert e.wins == []
+
+
+def test_disabled_part_not_spawned():
+    e = make_engine(track_face=False, track_nose=False, spawn_rate=500.0, motion_enabled=False)
+    snap = make_snap()
+    for i in range(30):
+        e.update(1 / 30, i / 30, snap)
+    assert e.wins and {w.part for w in e.wins} <= {"left_eye", "right_eye", "mouth"}
+
+
+def test_windows_stay_recoverable():
+    for edge in config.CHOICES["edge_mode"]:
+        e = make_engine(edge_mode=edge, motion_mode="scatter", speed=4.0, scatter=3.0, damping=0.0,
+                        life_s=100.0, spawn_rate=200.0, motion_enabled=False, afterimage_ratio=0.0)
+        snap = make_snap()
+        t = 0.0
+        for _ in range(600):
+            t += 1 / 60
+            e.update(1 / 60, t, snap)
+        for w in e.wins:
+            assert -2 * w.w - 1 <= w.x <= 1600 + 2 * w.w + 1
+            assert -2 * w.h - 1 <= w.y <= 900 + 2 * w.h + 1
+
+
+def test_lifetime_expires():
+    e = make_engine(life_s=0.5, life_jitter=0.0, afterimage_ratio=0.0, spawn_rate=0.0)
+    snap = make_snap()
+    e.burst(snap, 0.0, 10)
+    t = 0.0
+    for _ in range(90):
+        t += 1 / 60
+        e.update(1 / 60, t, snap)
+    assert e.wins == []
+
+
+def test_lost_part_windows_fade_out():
+    e = make_engine(spawn_rate=0.0, life_s=100.0, snapshot_ratio=0.0, delay_ratio=0.0)
+    e.burst(make_snap(("mouth",)), 0.0, 5, part="mouth")
+    assert len(e.wins) == 5
+    empty = make_snap(())
+    t = 0.0
+    for _ in range(40):
+        t += 1 / 60
+        e.update(1 / 60, t, empty)
+    assert e.wins == []
+
+
+def test_adaptive_reduces_cap_and_recovers():
+    e = make_engine(max_windows=200, min_windows=10, target_fps=30, spawn_rate=0.0)
+    e.burst(make_snap(), 0.0, 200)
+    t = 0.0
+    for _ in range(20):
+        t += 0.6
+        e.update(0.016, t, make_snap(), render_fps=10.0)
+    assert e.effective_max() < 200 and e.cap_reason
+    for _ in range(100):
+        t += 0.6
+        e.update(0.016, t, make_snap(), render_fps=60.0)
+    assert e.effective_max() == 200 and not e.cap_reason
+
+
+def test_native_mode_limits_native_count():
+    e = make_engine(render_mode="native", native_max=5, max_windows=100, adaptive=False)
+    e.burst(make_snap(), 0.0, 40)
+    assert e.native_count() <= 5 and all(w.backend == "native" for w in e.wins)
+    e2 = make_engine(render_mode="hybrid", native_max=5, max_windows=100, adaptive=False)
+    e2.burst(make_snap(), 0.0, 40)
+    assert e2.native_count() == 5 and len(e2.wins) == 40
+
+
+def test_mouth_event_triggers_burst():
+    e = make_engine(spawn_rate=0.0, burst_count=40, adaptive=False)
+    e.update(0.016, 0.0, make_snap(), events=[("mouth_open", 0.0)])
+    assert len(e.wins) == 20 and all(w.part == "mouth" for w in e.wins)
+
+
+def test_paused_freezes():
+    e = make_engine(spawn_rate=0.0, motion_mode="scatter")
+    snap = make_snap()
+    e.burst(snap, 0.0, 5)
+    e.paused = True
+    before = [(w.x, w.y) for w in e.wins]
+    e.update(0.05, 0.05, snap)
+    assert [(w.x, w.y) for w in e.wins] == before

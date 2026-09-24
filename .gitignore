@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+config/settings.json
+config/presets/
+models/*.task
+bench/results/
+
+# 参考映像（第三者の映像のためリポジトリに含めない）
+ai.gif
+.claude/
