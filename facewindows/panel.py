@@ -33,7 +33,7 @@ RENDER_DESC = {
 }
 
 STYLE = """
-QWidget { background: #16181d; color: #e6e6e6; font-family: 'Segoe UI', 'Yu Gothic UI'; font-size: 9pt; }
+QWidget { background: #16181d; color: #e6e6e6; font-family: 'Segoe UI', 'Yu Gothic UI', 'Hiragino Sans', 'Helvetica Neue'; font-size: 9pt; }
 QTabWidget::pane { border: 1px solid #2c313a; }
 QTabBar::tab { background: #22262e; padding: 5px 8px; border: 1px solid #2c313a; }
 QTabBar::tab:selected { background: #2f3542; color: #ffffff; }

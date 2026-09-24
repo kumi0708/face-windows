@@ -459,3 +459,16 @@ def test_stamp_fade_timing_and_no_flash():
     assert any(0.3 < a < 0.7 for dt_, a in alphas if 1.4 < dt_ < 1.6)         # 途中で半分くらい
     assert all(b <= a + 1e-9 for (_, a), (_, b) in zip(alphas, alphas[1:]))  # 一度も濃く戻らない
     assert 2.0 <= alphas[-1][0] <= 2.0 + 0.3                                  # 約2秒で消える
+
+
+def test_stamp_native_mode_recycles_old_native_windows():
+    e = make_mirror(mirror_style="stamp", render_mode="native", native_max=6, max_windows=100,
+                    mirror_stamp_move=0.05, mirror_stamp_interval=0.0, mirror_stamp_life=100.0,
+                    adaptive=False)
+    t = 0.0
+    for i in range(40):
+        t += 1 / 60
+        e.update(1 / 60, t, mirror_snap(pos=(0.2 + i * 0.01, 0.5)))
+    assert all(w.backend == "native" for w in e.wins)
+    assert e.native_count() <= 6
+    assert all(e._mirror[(p, 0)].backend == "native" for p in ("face", "left_eye", "mouth"))

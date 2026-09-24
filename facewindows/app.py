@@ -211,6 +211,9 @@ class Controller:
             self.toggle_pause()
 
     def hotkey_text(self):
+        if sys.platform != "win32":
+            return ("グローバルな緊急停止キーは Windows のみ対応。管理画面の STOP ボタン、または管理画面上で "
+                    "Esc=STOP, F5=START, B=BURST, ⌘Q/Ctrl+Q=終了。")
         ok = ", ".join(self.hotkeys.registered) or "なし"
         msg = (f"緊急停止: {HOTKEYS[1][3]}（STOP） / {HOTKEYS[2][3]}（終了） / {HOTKEYS[3][3]}（PAUSE）"
                f" — どのアプリが前面でも有効。管理画面上では Esc=STOP, F5=START, B=BURST, Ctrl+Q=終了。")
@@ -308,8 +311,10 @@ class Controller:
                 self.overlay.repaint()
             if self.settings["render_mode"] != "overlay" or self.native.used:
                 below = int(self.panel.winId()) if self.settings["panel_on_top"] else None
-                self.native.sync(self.engine.wins, snap, self.tracker, self.target_screen(),
-                                 float(self.settings["opacity"]), below)
+                restacked = self.native.sync(self.engine.wins, snap, self.tracker, self.target_screen(),
+                                             float(self.settings["opacity"]), below)
+                if restacked and self.settings["panel_on_top"]:
+                    self.panel.raise_()   # Windows 以外：実ウィンドウの上に管理ウィンドウを戻す
             self.warnings.pop("tick", None)
         except Exception as e:  # 描画ループは止めない
             self.warnings["tick"] = f"描画ループエラー: {e!r}"

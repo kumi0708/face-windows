@@ -127,6 +127,17 @@ class Engine:
             return "native"
         return "overlay" if mode == "hybrid" else ""
 
+    def _mirror_backend(self) -> str:
+        """ミラーの窓の描画方式。実ウィンドウが上限なら、置いていかれた古い実ウィンドウを再利用する。"""
+        b = self._choose_backend()
+        if b:
+            return b
+        olds = [w for w in self.wins if w.backend == "native" and w.mirror_key is None]
+        if olds:
+            self._remove(olds[0])
+            return "native"
+        return "overlay"
+
     def spawn(self, snap, now: float, part: str | None = None, origin=None,
               mode: str | None = None, direction=None) -> Win | None:
         parts = self.enabled_parts(snap)
@@ -464,7 +475,7 @@ class Engine:
                         break
                     self._remove(old)
                 cur = Win(self._next_id, part, tx, ty, tw, th, "mirror", now, math.inf,
-                          backend=self._choose_backend() or "overlay", mirror_key=key)
+                          backend=self._mirror_backend(), mirror_key=key)
                 self._next_id += 1
                 cur.scale = 0.6
                 self._mirror[key] = cur
@@ -511,7 +522,7 @@ class Engine:
                 w = self._mirror.get(key)
                 if w is None or w.dying_since is not None:
                     w = Win(self._next_id, part, tx, ty, tw, th, "mirror", now, math.inf,
-                            backend=self._choose_backend() or "overlay", mirror_key=key)
+                            backend=self._mirror_backend(), mirror_key=key)
                     self._next_id += 1
                     w.scale = 1.0 if k else 0.3
                     self._mirror[key] = w

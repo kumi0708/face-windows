@@ -94,6 +94,7 @@ class Overlay(QWidget):
         self.st = app_state
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self.setAttribute(Qt.WA_MacAlwaysShowToolWindow)   # macOS: アプリが背面でも隠さない
         self.setWindowTitle("FACE WINDOWS overlay")
         self._chrome: dict[int, tuple] = {}
         self.paint_ms = 0.0
@@ -182,6 +183,7 @@ class NativeWin(QWidget):
     def __init__(self):
         super().__init__(None, Qt.Tool | Qt.WindowStaysOnTopHint | Qt.WindowDoesNotAcceptFocus)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self.setAttribute(Qt.WA_MacAlwaysShowToolWindow)
         self.setAttribute(Qt.WA_OpaquePaintEvent)
         self.win_id = -1
         self.img: QImage | None = None
@@ -265,8 +267,9 @@ class NativePool:
             w.deleteLater()
         self.free.clear()
 
-    def sync(self, wins, snap, tracker, screen, opacity: float, below_hwnd: int | None = None) -> None:
-        """below_hwnd: この窓（管理ウィンドウ）より下に並べる。None なら最前面の一番上から。"""
+    def sync(self, wins, snap, tracker, screen, opacity: float, below_hwnd: int | None = None) -> bool:
+        """below_hwnd: この窓（管理ウィンドウ）より下に並べる（Windows）。None なら最前面の一番上から。
+        戻り値: 重なり順を並べ直したか（Windows 以外では呼び出し側で管理ウィンドウを前に出す）。"""
         t0 = time.perf_counter()
         active = [w for w in wins if w.backend == "native"]
         ids = {w.id for w in active}
@@ -274,7 +277,7 @@ class NativePool:
             self.release(wid)
         if snap is None:
             self._hide_pending()
-            return
+            return False
         geo_tl = screen.geometry().topLeft()
         dpr = screen.devicePixelRatio()
         moves = []
@@ -308,8 +311,11 @@ class NativePool:
                 nw.move(int(lx), int(ly))   # Qt の move はフレーム左上（論理座標）
                 nw.show()
                 self._z_order = ()          # 新しい窓は最前面に出るので並べ直す
-            px = int(geo_tl.x() + (lx - geo_tl.x()) * dpr)
-            py = int(geo_tl.y() + (ly - geo_tl.y()) * dpr)
+            if self._user32 is not None:   # Win32 は物理ピクセル
+                px = int(geo_tl.x() + (lx - geo_tl.x()) * dpr)
+                py = int(geo_tl.y() + (ly - geo_tl.y()) * dpr)
+            else:                          # Qt の move は論理座標
+                px, py = int(lx), int(ly)
             moves.append((nw, px, py))
             nw.update()
         self._hide_pending()
@@ -338,7 +344,13 @@ class NativePool:
                         h = u.DeferWindowPos(h, int(nw.winId()), None, px, py, 0, 0, flags)
             if h:
                 u.EndDeferWindowPos(h)
-        elif moves:
+        elif moves:   # Windows 以外：1枚ずつ移動し、重なり順は奥から raise_ で積む
             for nw, px, py in moves:
                 nw.move(px, py)
+            if restack:
+                for w in active:
+                    nw = self.used.get(w.id)
+                    if nw is not None:
+                        nw.raise_()
         self.paint_ms = (time.perf_counter() - t0) * 1000
+        return restack and u is None

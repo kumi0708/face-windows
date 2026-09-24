@@ -1,26 +1,33 @@
 """カメラ取得スレッド。最新フレームのみ保持し、古いフレームは溜めない。"""
 from __future__ import annotations
 
+import sys
 import threading
 import time
 
 import cv2
 
+IS_WINDOWS = sys.platform == "win32"
+IS_MAC = sys.platform == "darwin"
+# Windows: DirectShow（開くのが速く MJPG が使える）/ macOS: AVFoundation / その他: OpenCV に任せる
+BACKEND = cv2.CAP_DSHOW if IS_WINDOWS else cv2.CAP_AVFOUNDATION if IS_MAC else cv2.CAP_ANY
+
 
 def list_cameras(max_probe: int = 4) -> list[tuple[int, str]]:
-    """(index, 名前) の一覧。DirectShow の名前が取れればそれを使う。"""
-    try:
-        from pygrabber.dshow_graph import FilterGraph
-        names = FilterGraph().get_input_devices()
-        return list(enumerate(names))
-    except Exception:
-        found = []
-        for i in range(max_probe):
-            cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
-            if cap.isOpened():
-                found.append((i, f"Camera {i}"))
-            cap.release()
-        return found
+    """(index, 名前) の一覧。Windows は DirectShow の名前、それ以外は番号を順に開いて確かめる。"""
+    if IS_WINDOWS:
+        try:
+            from pygrabber.dshow_graph import FilterGraph
+            return list(enumerate(FilterGraph().get_input_devices()))
+        except Exception:
+            pass
+    found = []
+    for i in range(max_probe):
+        cap = cv2.VideoCapture(i, BACKEND)
+        if cap.isOpened():
+            found.append((i, f"Camera {i}"))
+        cap.release()
+    return found
 
 
 class Camera(threading.Thread):
@@ -43,12 +50,16 @@ class Camera(threading.Thread):
         if self.source:
             self._run_file()
             return
-        cap = cv2.VideoCapture(self.index, cv2.CAP_DSHOW)
+        cap = cv2.VideoCapture(self.index, BACKEND)
         if not cap.isOpened():
-            self.error = f"カメラ {self.index} を開けません（未接続・他アプリが使用中・権限拒否の可能性）"
+            hint = ("macOS の「システム設定 → プライバシーとセキュリティ → カメラ」で"
+                    "ターミナル（または Python）を許可してください" if IS_MAC
+                    else "未接続・他アプリが使用中・権限拒否の可能性")
+            self.error = f"カメラ {self.index} を開けません（{hint}）"
             self.opened.set()
             return
-        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+        if IS_WINDOWS:
+            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
         cap.set(cv2.CAP_PROP_FPS, self.fps)

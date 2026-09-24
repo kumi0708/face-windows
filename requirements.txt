@@ -3,5 +3,5 @@ opencv-contrib-python==5.0.0.93
 PySide6==6.11.2
 numpy>=2.0
 psutil>=5.9
-pygrabber>=0.2
+pygrabber>=0.2; sys_platform == "win32"
 pytest>=8
