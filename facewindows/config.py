@@ -8,6 +8,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -101,7 +102,8 @@ DEFAULTS: dict = {
     "render_mode": "overlay",     # overlay（疑似）/ native（OS実ウィンドウ）/ hybrid
     "native_max": 24,
     "target_screen": 0,
-    "window_style": "win11_light",  # win11_light / win11_dark / macos / retro / frameless
+    # win11_light / win11_dark / macos / retro / frameless。動かしている OS の窓に似せる
+    "window_style": "macos" if sys.platform == "darwin" else "win11_light",
     "opacity": 1.0,
     "shadow": True,
     "snapshot_ratio": 0.1,        # 静止画スナップショット窓の割合
