@@ -1,5 +1,7 @@
 # FACE WINDOWS
 
+**日本語** | [English](#english)
+
 Webカメラに映った顔（顔全体・左右の目・鼻・口、任意で身体・腕・手）のライブ映像を切り抜き、
 デスクトップ上の**大量の小さなタイトルバー付きウィンドウ**として高速に増殖・飛散・追従させるインタラクティブアート。
 画面右側の管理ウィンドウ（CONTROL PANEL）から、すべての設定を再起動なしで変更できる。
@@ -145,3 +147,205 @@ run.bat --preset "ミラー（顔を再構成）" --set mirror_trails=5 --autost
 - 描画 FPS の上限は約 67（タイマー 15ms）。300 個以上では 30fps を下回る（自動負荷調整で抑制可能）。
 - Hands の左右判定は MediaPipe の推定に依存する。Body/Arms/Hands は既定 OFF。
 - 顔が画面外に出ると、保持時間の後に該当する窓は自然に消える（最終映像のまま縮小フェード）。
+
+---
+
+<a id="english"></a>
+
+# FACE WINDOWS (English)
+
+[日本語](#face-windows) | **English**
+
+Interactive art that crops the live webcam feed of your face — the whole face, each eye,
+nose and mouth, plus optional body, arms and hands — and multiplies it across the desktop
+as **swarms of small windows with title bars** that scatter, drift and follow you.
+Every setting can be changed from the CONTROL PANEL on the right without restarting.
+
+Inspired by: https://www.instagram.com/reels/DdjqhjPhkm7/
+
+## Two display modes
+
+| Mode | What it does |
+|---|---|
+| **Swarm** (default) | Windows are born from each facial part and fly apart, drift, or follow, at wildly varying sizes |
+| **Mirror** | Maps the camera image **1:1** onto the desktop, placing each window exactly where that part appears on camera. In the default behaviour (**spawn on drift**) windows never move: every time your face shifts or changes size, a new window is spawned at the new mirrored position, and the windows left behind stay put and fade out — so your movements leave a trail of windows. A face assembled out of windows appears on your desktop, growing larger as you lean in. Nothing flies around on its own (mouth/head BURST reactions are off by default). You can switch to **follow** instead, where windows chase their part, optionally with lagging afterimage windows layered behind |
+
+Switch modes under "表示モード" (Display mode) in the panel. Applying the **ミラー（顔を再構成）**
+preset (Mirror / reconstruct the face) loads a matching set of values at once (360px crops,
+rotation correction off, and so on).
+
+Mirror settings live in the DISPLAY tab: mirror behaviour (spawn on drift / follow), how far the
+face must drift before spawning, how long abandoned windows live and how long they fade,
+camera-to-screen fitting (fill while keeping the aspect ratio / fit inside / stretch), window size,
+afterimage count, lag and opacity, and crop resolution.
+
+In **follow** mode the detection box is smoothed with a One Euro filter (suppresses jitter when
+you hold still, snaps quickly when you move), and the 30fps detections are interpolated by the
+60fps renderer (tune via "ブレ補正" in TRACKING and "窓の動きのなめらかさ" in DISPLAY).
+The whole desktop including the control panel is mapped 1:1 — the panel stays on top, pseudo
+windows are not drawn over it, and real OS windows are stacked underneath it.
+
+> **About rendering**: by default the windows are **pseudo windows** — a single transparent,
+> click-through window covering the whole screen, onto which title-barred windows are painted.
+> They are not real OS windows. Switch to a small number of **real OS windows**, or a **hybrid**
+> of both, under DISPLAY → rendering mode. Rationale and measurements are in
+> [TECH_DECISIONS.md](TECH_DECISIONS.md).
+
+## Requirements
+
+- Windows 10/11 (verified)
+- macOS 13+ on Apple Silicon (M1 or later) — launch, camera, face detection and window spawning
+  verified on an M1 MacBook Air running macOS 26; performance not measured. Intel Macs are not
+  supported because MediaPipe's macOS build is Apple Silicon only
+- Python 3.11 (the version MediaPipe supports)
+- A webcam (on Windows, allow desktop apps under Settings → Privacy & security → Camera)
+- Reference machine: Windows 11 / RTX 5070 Laptop / 2880×1800 (150%) / ASUS FHD webcam
+
+## First-time setup
+
+Windows:
+```bat
+setup.bat
+```
+
+macOS (needs Python 3.11, e.g. `brew install python@3.11`):
+```bash
+./setup.sh
+```
+
+This creates `.venv`, installs `requirements.txt`, and downloads the three MediaPipe models into
+`models/` (face / pose_lite / hand, about 17MB total, from Google's official distribution).
+
+## Running and quitting
+
+```bat
+run.bat
+```
+
+On macOS use `./run.sh`. The first launch asks for camera permission (if you decline, allow it
+again under System Settings → Privacy & Security → Camera and restart).
+macOS only shows that dialog to the frontmost app, so launch it **directly from a terminal** —
+started in the background it never gets the prompt and sits at "カメラ停止中" (camera stopped).
+
+1. The control panel opens on the right, showing the camera preview and detection boxes.
+2. **▶ START** begins spawning windows (or enable auto-start on launch).
+3. **❚❚ PAUSE** pauses, **■ STOP** reclaims every window and releases the camera,
+   **↺ RESET** clears all windows.
+4. Quit by closing the panel, via "アプリを終了" in the SYSTEM tab, or with `Ctrl+Alt+Q`.
+
+### Emergency stop (works whichever app is in front)
+
+| Key | Action |
+|---|---|
+| `Ctrl+Alt+S` | STOP (stop spawning, reclaim windows, release the camera) |
+| `Ctrl+Alt+Q` | Quit |
+| `Ctrl+Alt+P` | Toggle PAUSE |
+| `Esc` / `F5` / `B` / `Ctrl+Q` while the panel has focus | STOP / START / BURST / quit |
+
+Global hotkeys are Windows only. On macOS use the STOP button in the panel, or Esc / ⌘Q while
+the panel has focus. If another app already owns a hotkey, the failure is shown at the bottom of
+the panel — the STOP button and Esc still work. Pseudo windows pass clicks through and are not
+drawn over the panel (on by default), so the panel stays usable no matter how many windows there are.
+
+## Control panel
+
+| Section | Contents |
+|---|---|
+| Always visible | State, rendering mode, detection preview (per-part boxes, HOLD/LOST, motion position), START/PAUSE/STOP/RESET/BURST, per-part on/off, max count, spawn rate, speed, motion mode, window count, input/inference/render FPS, warnings |
+| CAMERA | Camera selection (DirectShow names on Windows), resolution, input FPS, horizontal flip, reconnect |
+| TRACKING | Face / Left eye / Right eye / Nose / Mouth / Body / Arms / Hands, detection confidence threshold, jitter smoothing (One Euro), rotation correction, hold time when a part is lost, Body/Hands frame skipping, motion on/off and thresholds, BURST on open mouth / head shake |
+| GENERATION | Max concurrent windows, spawn rate (per second), BURST size, lifetime and variance, spawn position (around the face / near the part / random / at the motion), scatter, scale, size and variance, share of whole-face windows, share of duplicated parts |
+| MOTION | Follow / scatter / random drift / fixed / mixed, speed, follow speed, follow lag variance, scatter, randomness, damping, influence of head movement, screen edges (bounce / wrap / vanish / respawn) |
+| DISPLAY | Display mode (swarm / mirror) and mirror settings, rendering mode (pseudo / real / hybrid), real-window cap, target monitor, style (Win11 light / dark / macOS / Win95 / frameless — defaults to match the OS you are running on), opacity, shadow, share of snapshot / delayed / afterimage windows |
+| PERF | Window counts (real/pseudo), requested vs actual caps, requested vs actual spawn rate, each FPS, detection time, render time, latency, memory, CPU, adaptive load control, benchmark |
+| PRESETS/SYSTEM | Presets (fast swarm / face follow / mirror / random scatter, plus your own), save / load / reset settings, keep panel on top, auto-start, quit |
+
+- Left and right are **from the subject's point of view** (Left eye = the person's own left eye).
+  The horizontal flip affects display only.
+- Metrics that cannot actually be measured are shown as "未計測" (not measured), e.g. GPU usage.
+- Settings are saved to `config/settings.json` and user presets to `config/presets/*.json`
+  (only when you press save).
+
+## How it works
+
+```
+[detection process]  camera thread (latest frame only) → detection thread (MediaPipe, once per frame)
+                      → per-part rotation-corrected crops (BGRA 240px) + motion + mouth opening / head speed
+                      ──Pipe (latest only)──▶
+[GUI process]        receive thread (to QImage, history for delayed windows) → simulation
+                      (spawn / move / lifetime / caps / adaptive control)
+                      → pseudo windows batch-painted onto a transparent overlay,
+                        or real OS windows batch-moved via DeferWindowPos
+                      control panel (settings in a shared dict, applied from the next frame,
+                      forwarded to the detection process automatically)
+```
+
+| File | Role |
+|---|---|
+| `facewindows/app.py` | Overall control (START/STOP, main loop, statistics, benchmark) |
+| `facewindows/remote.py` | Communication with the detection process |
+| `facewindows/camera.py` / `tracker.py` / `geometry.py` | Camera capture, detection and cropping, coordinate math |
+| `facewindows/engine.py` | Window spawning, motion, lifetime, adaptive load control |
+| `facewindows/render.py` | Pseudo-window painting, real OS window pool |
+| `facewindows/panel.py` | Control panel |
+| `facewindows/hotkeys.py` | Global hotkeys |
+| `bench/window_bench.py` | Standalone benchmark comparing rendering methods |
+
+## Tests and measurement
+
+```bat
+.venv\Scripts\python -m pytest -q tests
+```
+
+38 tests cover settings validation, left/right and flip coordinates, crop orientation, never
+exceeding the cap, spawning nothing with all parts off, windows never escaping the screen,
+lifetime and loss-triggered removal, adaptive load control, the real-window cap, mouth BURST,
+PAUSE, and for mirror mode the coordinate mapping, per-part windows, afterimage lag, clearing on
+loss, and mode switching.
+
+Measure performance from the PERF tab ("負荷ベンチマーク実行") or from the command line; results
+are written as JSON to `bench/results/`.
+
+```bat
+run.bat --bench 20,100,200 --quit-after-bench
+run.bat --bench 10,24 --render-mode native --quit-after-bench
+run.bat --source face.jpg --bench 20,100,200 --quit-after-bench   :: reproducible runs from an image/video
+run.bat --preset "ミラー（顔を再構成）" --set mirror_trails=5 --autostart   :: start with a preset and overrides
+```
+
+Measured on Windows (real camera, pseudo windows): 67fps at 20 windows, 54fps at 100, 33fps at
+200; inference holds around 30fps; camera-to-display latency 37–57ms. Details in
+[TECH_DECISIONS.md](TECH_DECISIONS.md).
+
+## Privacy
+
+- Camera images are never written to disk or sent anywhere. Snapshot, afterimage and delayed
+  windows are held in memory only.
+- The only network access is downloading packages and models during setup.
+
+## Known limitations
+
+- On macOS there are no global emergency hotkeys, cameras are listed by number, and real OS
+  windows move one at a time (Windows' batch-move API has no equivalent, so it may be slower).
+  Performance is unmeasured, and mirror mode and the real-OS-window renderer are unverified there.
+- macOS pins MediaPipe to the 0.10 series: 1.0.x has a
+  [known regression](https://github.com/google-ai-edge/mediapipe/issues/6356) that crashes even
+  under CPU inference because the Metal service is never registered. Windows stays on 1.0.1.
+- macOS denies camera access without even showing a dialog unless Python declares
+  `NSCameraUsageDescription`. `setup.sh` adds it, but reinstalling Python removes it again — rerun
+  `setup.sh` if that happens.
+- Pseudo windows only look like windows: they cannot be clicked, moved or closed (clicks pass
+  through). Real OS windows can be closed individually with their close button (this does not quit
+  the app).
+- Using mirror mode with real OS windows will not resize a window for a size change under 6%
+  (resizing is expensive), so positions and sizes match less precisely than with pseudo windows.
+  Window rotation (head tilt) is not represented.
+- Real OS windows top out around 20–30 in practice. Reused windows keep their size (the image is
+  centre-cropped to fit). Scaling and fade animations are pseudo-windows only.
+- Output is limited to a single monitor (chosen under DISPLAY → target monitor).
+- GPU usage is not measured. CPU usage covers the rendering process only.
+- Render FPS is capped near 67 (15ms timer). Beyond 300 windows it drops below 30fps (adaptive
+  load control can hold it back).
+- Handedness for Hands relies on MediaPipe's estimate. Body/Arms/Hands are off by default.
+- When your face leaves the frame, its windows disappear naturally after the hold time (shrinking
+  and fading with their last image).
