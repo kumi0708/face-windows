@@ -223,3 +223,91 @@ def test_paused_freezes():
     before = [(w.x, w.y) for w in e.wins]
     e.update(0.05, 0.05, snap)
     assert [(w.x, w.y) for w in e.wins] == before
+
+
+# ---------- mirror layout ----------
+def mirror_snap(parts=("face", "left_eye", "mouth"), pos=(0.5, 0.5), size=0.25):
+    img = object()
+    return Snapshot(parts={p: PartState(img, pos, size, True) for p in parts},
+                    face_center=pos, frame_size=(1280, 720))
+
+
+def make_mirror(**over):
+    e = make_engine(layout_mode="mirror", mirror_trails=2, **over)
+    e.screen_rect = (0.0, 0.0, 1920.0, 1200.0)
+    return e
+
+
+def test_mirror_target_cover_and_contain():
+    snap = mirror_snap(pos=(0.25, 0.5), size=0.25)
+    e = make_mirror(mirror_fit="cover")
+    x, y, w, h = e.mirror_target("face", snap)
+    k = max(1920 / 1280, 1200 / 720)            # 比率維持で画面を埋める
+    assert x == pytest.approx(960 - 0.25 * 1280 * k)
+    assert y == pytest.approx(600)
+    assert w == pytest.approx(0.25 * 1280 * k)
+    assert h == pytest.approx(w / geo.PART_SHAPE["face"][0])
+    e.s["mirror_fit"] = "contain"
+    x2, _, w2, _ = e.mirror_target("face", snap)
+    assert w2 == pytest.approx(0.25 * 1280 * min(1920 / 1280, 1200 / 720))
+    e.s["mirror_fit"] = "stretch"
+    x3, _, w3, _ = e.mirror_target("face", snap)
+    assert x3 == pytest.approx(480) and w3 == pytest.approx(0.25 * 1920)
+
+
+def test_mirror_one_window_per_part_plus_trails():
+    e = make_mirror(spawn_rate=500.0, motion_enabled=False)
+    snap = mirror_snap()
+    for i in range(10):
+        e.update(1 / 60, i / 60, snap)
+    assert len(e.wins) == 3 * 3            # 3部位 ×（本体1＋残像2）、自動生成なし
+    anchors = [w for w in e.wins if w.mirror_key[1] == 0]
+    assert {w.part for w in anchors} == {"face", "left_eye", "mouth"}
+    # 顔が奥、口が手前
+    order = [w.part for w in anchors]
+    assert order.index("face") < order.index("mouth")
+    face = next(w for w in anchors if w.part == "face")
+    assert (face.x, face.y) == pytest.approx(e.mirror_target("face", snap)[:2])
+
+
+def test_mirror_follows_and_trails_lag():
+    e = make_mirror()
+    t = 0.0
+    for _ in range(30):
+        t += 1 / 60
+        e.update(1 / 60, t, mirror_snap(pos=(0.3, 0.5)))
+    moved = mirror_snap(pos=(0.7, 0.5))
+    e.update(1 / 60, t + 1 / 60, moved)
+    anchor = e._mirror[("face", 0)]
+    trail = e._mirror[("face", 2)]
+    tx = e.mirror_target("face", moved)[0]
+    assert anchor.x == pytest.approx(tx)
+    assert trail.x < anchor.x - 100          # 残像は遅れてついてくる
+    assert trail.image_mode == "delay" and trail.delay > 0
+
+
+def test_mirror_lost_part_removed_and_burst_keeps_anchors():
+    e = make_mirror(max_windows=12, adaptive=False)
+    snap = mirror_snap()
+    e.update(1 / 60, 0.0, snap)
+    e.burst(snap, 0.0, 100)                  # 上限に達してもミラー窓は再利用されない
+    assert all(k in e._mirror for k in [("face", 0), ("mouth", 0), ("left_eye", 0)])
+    assert len(e.wins) == 12
+    t = 0.0
+    for _ in range(40):
+        t += 1 / 60
+        e.update(1 / 60, t, mirror_snap(parts=("face",)))
+    assert not any(w.part == "mouth" and w.mirror_key for w in e.wins)
+
+
+def test_switching_back_to_swarm_removes_mirror_windows():
+    e = make_mirror()
+    snap = mirror_snap()
+    e.update(1 / 60, 0.0, snap)
+    e.s["layout_mode"] = "swarm"
+    e.s["spawn_rate"] = 0.0
+    t = 0.0
+    for _ in range(30):
+        t += 1 / 60
+        e.update(1 / 60, t, snap)
+    assert not any(w.mirror_key for w in e.wins)

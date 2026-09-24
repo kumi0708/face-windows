@@ -85,11 +85,11 @@ def box_from_points(pts: np.ndarray, part: str, angle: float = 0.0) -> Box:
     return Box(mx * c - my * s, mx * s + my * c, w, h, angle)
 
 
-def crop_size(part: str) -> tuple[int, int]:
+def crop_size(part: str, long_side: int = CROP_LONG_SIDE) -> tuple[int, int]:
     aspect = PART_SHAPE[part][0]
     if aspect >= 1:
-        return CROP_LONG_SIDE, max(8, int(round(CROP_LONG_SIDE / aspect)))
-    return max(8, int(round(CROP_LONG_SIDE * aspect))), CROP_LONG_SIDE
+        return long_side, max(8, int(round(long_side / aspect)))
+    return max(8, int(round(long_side * aspect))), long_side
 
 
 def crop(frame: np.ndarray, box: Box, size: tuple[int, int], mirror: bool,

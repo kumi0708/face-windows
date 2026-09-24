@@ -78,6 +78,14 @@ DEFAULTS: dict = {
     "damping": 1.2,
     "edge_mode": "bounce",        # bounce / wrap / kill / respawn
     "face_push": 1.0,             # 顔の移動が窓に与える勢い
+    # LAYOUT（swarm: 顔から窓が増殖して動き回る / mirror: カメラ＝デスクトップ 1:1 で部位の位置・大きさに窓を置く）
+    "layout_mode": "swarm",
+    "mirror_fit": "cover",        # cover（比率維持で画面を埋める）/ contain（比率維持で収める）/ stretch
+    "mirror_scale": 1.0,          # 部位の大きさに対する窓の大きさ
+    "mirror_trails": 3,           # 部位ごとの残像窓の数（遅れて追従＋過去映像）
+    "mirror_trail_lag": 0.12,     # 残像1段ごとの遅れ(秒)
+    "mirror_trail_opacity": 0.8,
+    "crop_size": 240,             # 切り抜き解像度（長辺px）。ミラー表示で大きく映すなら 360〜480
     # DISPLAY
     "render_mode": "overlay",     # overlay（疑似）/ native（OS実ウィンドウ）/ hybrid
     "native_max": 24,
@@ -108,6 +116,9 @@ CHOICES = {
     "motion_mode": ["follow", "scatter", "drift", "fixed", "mix"],
     "edge_mode": ["bounce", "wrap", "kill", "respawn"],
     "render_mode": ["overlay", "native", "hybrid"],
+    "layout_mode": ["swarm", "mirror"],
+    "mirror_fit": ["cover", "contain", "stretch"],
+    "crop_size": [160, 240, 360, 480],
     "window_style": ["win11_light", "win11_dark", "macos", "retro", "frameless"],
 }
 
@@ -122,6 +133,10 @@ BUILTIN_PRESETS: dict[str, dict] = {
         "motion_mode": "follow", "follow_speed": 4.0, "follow_lag_jitter": 0.9,
         "spawn_spread": 220, "speed": 1.0, "scatter": 0.6, "size": 170,
         "spawn_area": "face", "delay_ratio": 0.25,
+    },
+    "ミラー（顔を再構成）": {
+        "layout_mode": "mirror", "mirror_trails": 3, "mirror_trail_lag": 0.12, "crop_size": 360,
+        "box_smoothing": 0.2, "rotate_crops": False, "shadow": True, "mouth_burst": True, "head_burst": False,
     },
     "ランダム飛散": {
         "max_windows": 150, "spawn_rate": 45.0, "burst_count": 60, "life_s": 5.0,

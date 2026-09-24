@@ -137,9 +137,12 @@ class TrackerClient:
                 snap.preview = _qimage(snap.preview, False)
             self.events.extend(msg["events"])
             now = time.perf_counter()
-            if float(self.settings["delay_ratio"]) > 0:
+            s = self.settings
+            mirror_trails = s["layout_mode"] == "mirror" and int(s["mirror_trails"]) > 0
+            if float(s["delay_ratio"]) > 0 or mirror_trails:
                 self.history.append((now, {k: v.image for k, v in snap.parts.items() if v.live}))
-                keep = float(self.settings["delay_s"]) + 0.3
+                keep = max(float(s["delay_s"]),
+                           float(s["mirror_trail_lag"]) * int(s["mirror_trails"]) if mirror_trails else 0) + 0.3
                 while self.history and now - self.history[0][0] > keep:
                     self.history.popleft()
             elif self.history:

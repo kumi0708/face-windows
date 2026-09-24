@@ -11,6 +11,11 @@ from . import config
 from . import geometry as geo
 
 CHOICE_LABELS = {
+    "layout_mode": {"swarm": "増殖（顔から窓が生まれて動き回る）",
+                    "mirror": "ミラー（カメラ＝デスクトップ 1:1、部位の位置と大きさに窓を置く）"},
+    "mirror_fit": {"cover": "比率を保って画面を埋める", "contain": "比率を保って画面に収める",
+                   "stretch": "画面いっぱいに引き伸ばす"},
+    "crop_size": {160: "160px（軽い）", 240: "240px", 360: "360px", 480: "480px（高精細・重い）"},
     "spawn_area": {"face": "顔中心の周囲", "part": "検出部位の付近", "random": "画面内ランダム", "motion": "動きの方向・位置"},
     "motion_mode": {"follow": "追従", "scatter": "飛散", "drift": "ランダム漂流", "fixed": "位置固定", "mix": "混合"},
     "edge_mode": {"bounce": "跳ね返り", "wrap": "反対側へ", "kill": "消滅", "respawn": "顔の近くへ再配置"},
@@ -224,6 +229,7 @@ class ControlPanel(QWidget):
         for i, (k, label) in enumerate(config.PART_TOGGLES.items()):
             parts_row.addWidget(b.check(f"track_{k}", label), i // 4, i % 4)
         ql.addLayout(parts_row)
+        ql.addWidget(b.combo("layout_mode", "表示モード"))
         ql.addWidget(b.slider("max_windows", "最大同時表示数", 0, 600, 1))
         ql.addWidget(b.slider("spawn_rate", "生成レート", 0, 300, 1, "{:.0f}", " 個/秒"))
         ql.addWidget(b.slider("speed", "移動速度", 0, 4, 0.05, "{:.2f}"))
@@ -356,6 +362,16 @@ class ControlPanel(QWidget):
     def _tab_display(self):
         b = self.b
         return page(
+            section("表示モード"),
+            b.combo("layout_mode", "表示モード"),
+            QLabel("ミラー：カメラ画像とデスクトップを 1:1 に対応させ、各部位をカメラ上と同じ位置・大きさの窓で表示。"
+                   "BURST・口/頭の反応で生まれた窓は通常どおり動き回る。"),
+            b.combo("mirror_fit", "カメラ→画面の合わせ方"),
+            b.slider("mirror_scale", "窓の大きさ（部位比）", 0.5, 2.0, 0.05, "{:.2f}"),
+            b.slider("mirror_trails", "残像の窓の数", 0, 8, 1),
+            b.slider("mirror_trail_lag", "残像1段の遅れ", 0.02, 0.6, 0.01, "{:.2f}", " 秒"),
+            b.slider("mirror_trail_opacity", "残像の濃さ", 0.1, 1, 0.05, "{:.2f}"),
+            b.combo("crop_size", "切り抜き解像度"),
             section("DISPLAY"),
             b.combo("render_mode", "描画方式"),
             b.slider("native_max", "実ウィンドウ上限", 1, 120, 1),

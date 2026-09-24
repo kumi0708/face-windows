@@ -218,6 +218,7 @@ class Tracker(threading.Thread):
         smooth = float(s["box_smoothing"])
         enabled = {p for t, parts in geo.TOGGLE_PARTS.items() if s[f"track_{t}"] for p in parts}
         hold = float(s["lost_hold_s"])
+        long_side = int(s["crop_size"])
         for name in geo.PART_SHAPE:
             box = detected.get(name)
             if box is not None:
@@ -228,10 +229,10 @@ class Tracker(threading.Thread):
                 self._last_seen[name] = now
                 if name not in enabled:
                     continue
-                img = geo.crop(frame, box, geo.crop_size(name), mirror, s["rotate_crops"])
+                img = geo.crop(frame, box, geo.crop_size(name, long_side), mirror, s["rotate_crops"])
                 alpha = None
                 if name == "body" and mask is not None:
-                    alpha = geo.crop((mask * 255).astype(np.uint8), box, geo.crop_size(name), mirror, False)
+                    alpha = geo.crop((mask * 255).astype(np.uint8), box, geo.crop_size(name, long_side), mirror, False)
                 st = PartState(to_bgra(img, alpha), geo.norm_center(box, fw, fh, mirror), box.w / fw, True)
                 snap.parts[name] = st
                 self._held[name] = st

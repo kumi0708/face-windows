@@ -16,6 +16,9 @@ PART_SCALE = {"face": 1.3, "body": 1.5}
 SPAWN_ANIM_S = 0.12
 DEATH_ANIM_S = 0.25
 MAX_SPAWN_PER_TICK = 80
+# ミラー表示の重なり順（先が奥）。顔の上に鼻・目・口、身体は一番奥、手は手前
+MIRROR_Z = ["body", "left_arm", "right_arm", "face", "nose", "left_eye", "right_eye", "mouth",
+            "left_hand", "right_hand"]
 
 
 @dataclass
@@ -43,11 +46,15 @@ class Win:
     afterimage: bool = False
     scale: float = 1.0
     alpha: float = 1.0
+    mirror_key: tuple | None = None   # ミラー表示の窓 (part, 残像の段数 0=本体)
     phase: float = field(default_factory=lambda: random.uniform(0, math.tau))
 
     @property
     def title(self) -> str:
-        return f"{geo.PART_LABEL.get(self.part, self.part)} — {self.id % 1000:03d}"
+        label = geo.PART_LABEL.get(self.part, self.part)
+        if self.mirror_key is not None:
+            return label if self.mirror_key[1] == 0 else f"{label} — echo {self.mirror_key[1]}"
+        return f"{label} — {self.id % 1000:03d}"
 
 
 class Engine:
@@ -67,7 +74,9 @@ class Engine:
         self.spawned_per_s = 0.0
         self.requested_rate = 0.0
         self.removed: list[Win] = []    # 今回のtickで消えた窓（native の後始末用）
-        self.rect = (0.0, 0.0, 1920.0, 1080.0)
+        self.rect = (0.0, 0.0, 1920.0, 1080.0)          # 窓が動ける範囲（管理画面を除く）
+        self.screen_rect = (0.0, 0.0, 1920.0, 1080.0)   # ミラー表示でカメラと 1:1 に対応させる画面
+        self._mirror: dict[tuple, Win] = {}
 
     # ---------- helpers ----------
     def to_screen(self, nx: float, ny: float) -> tuple[float, float]:
@@ -95,6 +104,7 @@ class Engine:
     def clear(self) -> None:
         self.removed.extend(self.wins)
         self.wins.clear()
+        self._mirror.clear()
         self._acc = 0.0
 
     # ---------- spawning ----------
@@ -129,10 +139,13 @@ class Engine:
         if limit <= 0:
             return None
         while len(self.wins) >= limit:
-            self._remove(self.wins[0])
+            old = next((w for w in self.wins if w.mirror_key is None), None)
+            if old is None:
+                return None
+            self._remove(old)
         backend = self._choose_backend()
         if not backend:  # native モードで空きが無い → 最古の native を再利用
-            olds = [w for w in self.wins if w.backend == "native"]
+            olds = [w for w in self.wins if w.backend == "native" and w.mirror_key is None]
             if not olds:
                 return None
             self._remove(olds[0])
@@ -214,6 +227,8 @@ class Engine:
             self.wins.remove(w)
         except ValueError:
             return
+        if w.mirror_key is not None and self._mirror.get(w.mirror_key) is w:
+            del self._mirror[w.mirror_key]
         self.removed.append(w)
 
     def kill(self, win_id: int) -> None:
@@ -236,8 +251,16 @@ class Engine:
         if self.paused:
             return
 
+        mirror = s["layout_mode"] == "mirror"
+        if self.running and mirror:
+            self._update_mirror(dt, now, snap)
+        elif self._mirror:
+            for w in list(self._mirror.values()):   # 表示モードを戻したらミラー窓は消える
+                w.dying_since = w.dying_since or now
+            self._mirror.clear()
+
         if self.running:
-            rate = float(s["spawn_rate"])
+            rate = 0.0 if mirror else float(s["spawn_rate"])   # ミラー表示では BURST と反応だけで増殖
             if s["motion_enabled"]:
                 sens = float(s["motion_sensitivity"])
                 speed = math.hypot(*snap.face_vel)
@@ -276,6 +299,14 @@ class Engine:
         fvx, fvy = snap.face_vel
         push = float(s["face_push"]) * 120 * speed
         for w in list(self.wins):
+            if w.mirror_key is not None:
+                if w.dying_since is not None:
+                    k = (now - w.dying_since) / DEATH_ANIM_S
+                    if k >= 1:
+                        self._remove(w)
+                    else:
+                        w.scale, w.alpha = 1 - 0.5 * k, min(w.alpha, 1 - k)
+                continue
             age = now - w.born
             # 寿命・死亡アニメーション
             if w.dying_since is None and age > w.life:
@@ -363,6 +394,72 @@ class Engine:
             # 回収不能にしない（どのモードでも画面から大きく離れない）
             w.x = min(max(w.x, x0 - w.w * 2), x1 + w.w * 2)
             w.y = min(max(w.y, y0 - w.h * 2), y1 + w.h * 2)
+
+    # ---------- mirror layout ----------
+    def mirror_target(self, part: str, snap) -> tuple[float, float, float, float]:
+        """カメラ画像上の部位 → デスクトップ上の位置と大きさ（映像部の中心・幅・高さ）。"""
+        s = self.s
+        ps = snap.parts[part]
+        fw, fh = snap.frame_size
+        x0, y0, x1, y1 = self.screen_rect
+        sw, sh = x1 - x0, y1 - y0
+        fit = s["mirror_fit"]
+        if fit == "stretch":
+            sx, sy = sw / fw, sh / fh
+        else:
+            sx = sy = (max if fit == "cover" else min)(sw / fw, sh / fh)
+        cx = (x0 + x1) / 2 + (ps.pos[0] - 0.5) * fw * sx
+        cy = (y0 + y1) / 2 + (ps.pos[1] - 0.5) * fh * sy
+        k = float(s["mirror_scale"])
+        bw = ps.size * fw
+        return cx, cy, bw * sx * k, bw / geo.PART_SHAPE[part][0] * sy * k
+
+    def _update_mirror(self, dt: float, now: float, snap) -> None:
+        """部位ごとに本体1枚＋残像N枚。本体はカメラの位置・大きさにそのまま置き、残像は段ごとに遅れて追う。"""
+        s = self.s
+        n = max(0, int(s["mirror_trails"]))
+        lag = max(0.01, float(s["mirror_trail_lag"]))
+        trail_op = float(s["mirror_trail_opacity"])
+        parts = self.enabled_parts(snap) if snap.frame_size[0] else []
+        wanted = set()
+        order: list[Win] = []
+        for part in sorted(parts, key=lambda p: MIRROR_Z.index(p) if p in MIRROR_Z else 99):
+            tx, ty, tw, th = self.mirror_target(part, snap)
+            for k in range(n, -1, -1):          # 奥から：古い残像 → 本体
+                key = (part, k)
+                wanted.add(key)
+                w = self._mirror.get(key)
+                if w is None or w.dying_since is not None:
+                    w = Win(self._next_id, part, tx, ty, tw, th, "mirror", now, math.inf,
+                            backend=self._choose_backend() or "overlay", mirror_key=key)
+                    self._next_id += 1
+                    w.scale = 1.0 if k else 0.3
+                    self._mirror[key] = w
+                    self.wins.append(w)
+                if k == 0:
+                    w.x, w.y, w.w, w.h = tx, ty, tw, th
+                    w.image_mode = "live"
+                    w.alpha = 1.0
+                    w.scale = min(1.0, w.scale + dt / SPAWN_ANIM_S)
+                else:
+                    a = 1 - math.exp(-dt / (lag * k))
+                    w.x += (tx - w.x) * a
+                    w.y += (ty - w.y) * a
+                    w.w += (tw - w.w) * a
+                    w.h += (th - w.h) * a
+                    w.image_mode = "delay"
+                    w.delay = lag * k
+                    w.alpha = trail_op * (1 - k / (n + 1)) + 0.1
+                order.append(w)
+        for key, w in list(self._mirror.items()):
+            if key not in wanted:           # 部位を見失った / 残像数を減らした
+                w.dying_since = w.dying_since or now
+                del self._mirror[key]
+        # 描画順：ミラー窓（奥）→ 消えかけのミラー窓 → 増殖窓（手前）
+        ids = {id(w) for w in order}
+        rest = [w for w in self.wins if id(w) not in ids]
+        dying = [w for w in rest if w.mirror_key is not None]
+        self.wins = order + dying + [w for w in rest if w.mirror_key is None]
 
     # ---------- adaptive load control ----------
     def _adapt(self, now: float, render_fps: float | None) -> None:

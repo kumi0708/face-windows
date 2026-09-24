@@ -136,9 +136,11 @@ class Overlay(QWidget):
                     continue
                 img = current_image(w, snap, st.tracker)
                 iw, ih = int(w.w), int(w.h)
+                # ミラー表示では毎フレーム幅が変わるので、タイトルバーは 16px 刻みで作って伸縮させる
+                bw = iw if w.mirror_key is None else max(16, int(round(iw / 16)) * 16)
                 key = self._chrome.get(w.id)
-                if key is None or key[0] != style or key[1] != iw:
-                    key = (style, iw, make_titlebar(style, iw, w.title))
+                if key is None or key[0] != style or key[1] != bw:
+                    key = (style, bw, make_titlebar(style, bw, w.title))
                     self._chrome[w.id] = key
                 bar = key[2]
                 cw, ch = iw + 2, ih + th + 2
@@ -149,7 +151,8 @@ class Overlay(QWidget):
                     p.translate(cx, cy)
                     p.scale(w.scale, w.scale)
                     cx = cy = 0.0
-                left, top = int(cx - cw / 2), int(cy - ch / 2)
+                # 映像部の中心を (x, y) に合わせる（タイトルバーはその上に付く）
+                left, top = int(cx - cw / 2), int(cy - ih / 2 - th - 1)
                 if shadow:  # 右と下の帯だけ（全面の半透明塗りは重い）
                     p.fillRect(left + cw, top + 5, 4, ch, shadow_col)
                     p.fillRect(left + 5, top + ch, cw - 1, 4, shadow_col)
@@ -158,7 +161,10 @@ class Overlay(QWidget):
                 else:
                     p.fillRect(left + 1, top + th + 1, iw, ih, black)
                 if bar is not None:
-                    p.drawPixmap(left, top, bar)
+                    if bar.width() == cw:
+                        p.drawPixmap(left, top, bar)
+                    else:
+                        p.drawPixmap(QRect(left, top, cw, bar.height()), bar)
                 p.drawRect(left, top, cw - 1, ch - 1)
                 if w.scale != 1.0:
                     p.restore()
@@ -211,6 +217,7 @@ class NativePool:
         self.free: list[NativeWin] = []      # 非表示で待機中
         self.pending: list[NativeWin] = []   # 表示したまま次の窓へ引き継ぐ候補（hide/show は 1回数ms かかる）
         self.used: dict[int, NativeWin] = {}
+        self._z_order: tuple = ()
         self.on_close = on_close
         self.paint_ms = 0.0
         self._user32 = None
@@ -258,7 +265,8 @@ class NativePool:
             w.deleteLater()
         self.free.clear()
 
-    def sync(self, wins, snap, tracker, screen, opacity: float) -> None:
+    def sync(self, wins, snap, tracker, screen, opacity: float, below_hwnd: int | None = None) -> None:
+        """below_hwnd: この窓（管理ウィンドウ）より下に並べる。None なら最前面の一番上から。"""
         t0 = time.perf_counter()
         active = [w for w in wins if w.backend == "native"]
         ids = {w.id for w in active}
@@ -274,7 +282,7 @@ class NativePool:
             nw = self.used.get(w.id)
             if nw is None:
                 nw = self._get()
-                if nw.size_key is not None:
+                if nw.size_key is not None and w.mirror_key is None:
                     # resize は1回数msかかるので、再利用した窓は今のサイズのまま使う
                     w.w, w.h = nw.size_key
                 nw.win_id = w.id
@@ -283,6 +291,10 @@ class NativePool:
                 self.used[w.id] = nw
             # 実ウィンドウは拡大縮小・フェードのアニメーションをしない（リサイズ/透明化が重い）
             iw, ih = max(40, int(w.w)), max(24, int(w.h))
+            sk = nw.size_key
+            if (sk is not None and w.mirror_key is not None
+                    and abs(iw - sk[0]) <= sk[0] * 0.06 and abs(ih - sk[1]) <= sk[1] * 0.06):
+                iw, ih = sk   # ミラー表示：小さな大きさの変化ではリサイズしない（重いため）
             if nw.size_key != (iw, ih):
                 nw.resize(iw, ih)
                 nw.size_key = (iw, ih)
@@ -295,19 +307,35 @@ class NativePool:
             if not nw.isVisible():
                 nw.move(int(lx), int(ly))   # Qt の move はフレーム左上（論理座標）
                 nw.show()
-            else:
-                px = int(geo_tl.x() + (lx - geo_tl.x()) * dpr)
-                py = int(geo_tl.y() + (ly - geo_tl.y()) * dpr)
-                moves.append((nw, px, py))
+                self._z_order = ()          # 新しい窓は最前面に出るので並べ直す
+            px = int(geo_tl.x() + (lx - geo_tl.x()) * dpr)
+            py = int(geo_tl.y() + (ly - geo_tl.y()) * dpr)
+            moves.append((nw, px, py))
             nw.update()
         self._hide_pending()
         u = self._user32
+        # 重なり順（ミラー表示で顔の上に目・口が来る／管理ウィンドウを覆わない）。順番が変わった時だけ並べ直す
+        z = tuple(w.id for w in active)
+        restack = z != self._z_order
+        self._z_order = z
         if moves and u is not None:
             h = u.BeginDeferWindowPos(len(moves))
-            flags = self.SWP_NOSIZE | self.SWP_NOZORDER | self.SWP_NOACTIVATE
-            for nw, px, py in moves:
-                if h:
-                    h = u.DeferWindowPos(h, int(nw.winId()), None, px, py, 0, 0, flags)
+            flags = self.SWP_NOSIZE | self.SWP_NOACTIVATE | (0 if restack else self.SWP_NOZORDER)
+            if restack:   # 手前の窓から順に、直前の窓の後ろへ挿入する
+                pos = {id(nw): (px, py) for nw, px, py in moves}
+                prev = ctypes.c_void_p(below_hwnd if below_hwnd else -1)   # 管理ウィンドウの下 / HWND_TOPMOST
+                for w in reversed(active):
+                    nw = self.used.get(w.id)
+                    if nw is None or id(nw) not in pos or not h:
+                        continue
+                    px, py = pos[id(nw)]
+                    hwnd = int(nw.winId())
+                    h = u.DeferWindowPos(h, hwnd, prev, px, py, 0, 0, flags)
+                    prev = ctypes.c_void_p(hwnd)
+            else:
+                for nw, px, py in moves:
+                    if h:
+                        h = u.DeferWindowPos(h, int(nw.winId()), None, px, py, 0, 0, flags)
             if h:
                 u.EndDeferWindowPos(h)
         elif moves:

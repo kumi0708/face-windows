@@ -29,8 +29,16 @@ class Controller:
         self.app = app
         self.args = args
         self.settings = config.load() if config.SETTINGS_PATH.exists() else config.defaults()
+        if args.preset:
+            self.settings = config.apply_preset(self.settings, args.preset)
         if args.render_mode:
             self.settings["render_mode"] = args.render_mode
+        for kv in args.set or []:   # --set key=value（テスト・展示用）
+            k, _, v = kv.partition("=")
+            if k in config.DEFAULTS:
+                if isinstance(config.DEFAULTS[k], bool):
+                    v = v.lower() in ("1", "true", "on", "yes")
+                self.settings[k] = config.sanitize({k: v})[k]
         self.tracker = None   # remote.TrackerClient（カメラ＋検出の別プロセス）
         self.engine = Engine(self.settings)
         self.warnings: dict[str, str] = {}
@@ -285,6 +293,9 @@ class Controller:
         self._last_tick = t0
         try:
             self.engine.rect = self.art_rect()
+            sg = self.target_screen().geometry()
+            self.engine.screen_rect = (float(sg.left()), float(sg.top()),
+                                       float(sg.left() + sg.width()), float(sg.top() + sg.height()))
             snap = self.tracker.snapshot() if self.tracker else None
             if snap is not None:
                 events = []
@@ -296,8 +307,9 @@ class Controller:
                 self.overlay.exclude = self.panel.frameGeometry() if self.panel.isVisible() else None
                 self.overlay.repaint()
             if self.settings["render_mode"] != "overlay" or self.native.used:
+                below = int(self.panel.winId()) if self.settings["panel_on_top"] else None
                 self.native.sync(self.engine.wins, snap, self.tracker, self.target_screen(),
-                                 float(self.settings["opacity"]))
+                                 float(self.settings["opacity"]), below)
             self.warnings.pop("tick", None)
         except Exception as e:  # 描画ループは止めない
             self.warnings["tick"] = f"描画ループエラー: {e!r}"
@@ -472,6 +484,8 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description="FACE WINDOWS")
     ap.add_argument("--autostart", action="store_true", help="起動直後に START")
     ap.add_argument("--render-mode", choices=config.CHOICES["render_mode"])
+    ap.add_argument("--set", action="append", metavar="KEY=VALUE", help="設定を上書き（複数可）")
+    ap.add_argument("--preset", choices=config.list_presets(), help="起動時にプリセットを適用")
     ap.add_argument("--source", help="カメラの代わりに画像/動画ファイルを入力にする（テスト・デモ用）")
     ap.add_argument("--bench", help="ベンチマークを実行（例: 20,100,200）")
     ap.add_argument("--quit-after-bench", action="store_true")
