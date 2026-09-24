@@ -272,7 +272,7 @@ def test_mirror_one_window_per_part_plus_trails():
 
 
 def test_mirror_follows_and_trails_lag():
-    e = make_mirror()
+    e = make_mirror(mirror_glide=0.0)
     t = 0.0
     for _ in range(30):
         t += 1 / 60
@@ -325,7 +325,7 @@ def test_mirror_ignores_reaction_bursts_by_default():
 
 
 def test_mirror_windows_stay_exactly_on_target_while_moving():
-    e = make_mirror(mirror_trails=0)
+    e = make_mirror(mirror_trails=0, mirror_glide=0.0)
     t = 0.0
     for i in range(60):
         t += 1 / 60
@@ -347,3 +347,41 @@ def test_switch_to_mirror_fades_swarm_windows():
         t += 1 / 60
         e.update(1 / 60, t, snap)
     assert e.wins and all(w.mirror_key is not None for w in e.wins)
+
+
+# ---------- stabilization / glide ----------
+def test_one_euro_suppresses_jitter_but_follows_motion():
+    rng = np.random.default_rng(0)
+    f = geo.OneEuro(min_cutoff=1.2, beta=0.02)
+    dt = 1 / 30
+    still = [f(500 + rng.normal(0, 2), dt) for _ in range(90)]
+    assert np.std(np.diff(still[30:])) < 0.3 * np.std(np.diff(500 + rng.normal(0, 2, 90)))
+    # 速く動く（1秒で600px）と遅れは小さい
+    xs = [f(500 + 600 * i * dt, dt) for i in range(30)]
+    assert 500 + 600 * 29 * dt - xs[-1] < 40
+
+
+def test_box_filter_scale_invariant_beta():
+    bf = geo.BoxFilter()
+    b = geo.Box(100, 100, 200, 250)
+    out = bf(b, 1 / 30, 1.2, 4.0)
+    assert (out.cx, out.w) == pytest.approx((100, 200))
+
+
+def test_mirror_glide_moves_smoothly_between_detections():
+    e = make_mirror(mirror_trails=0, mirror_glide=0.035)
+    t = 0.0
+    snap = mirror_snap(pos=(0.3, 0.5))
+    for _ in range(30):
+        t += 1 / 60
+        e.update(1 / 60, t, snap)
+    moved = mirror_snap(pos=(0.35, 0.5))       # 検出が1回で大きく動いた
+    target = e.mirror_target("face", moved)[0]
+    xs = []
+    for _ in range(12):
+        t += 1 / 60
+        e.update(1 / 60, t, moved)
+        xs.append(e._mirror[("face", 0)].x)
+    steps = np.diff([e.mirror_target("face", snap)[0]] + xs)
+    assert steps.max() < (target - e.mirror_target("face", snap)[0]) * 0.5   # 一気に跳ばない
+    assert abs(xs[-1] - target) < 2                                            # 0.2秒で追いつく

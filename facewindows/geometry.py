@@ -67,6 +67,48 @@ class Box:
                    self.angle + da * a)
 
 
+class OneEuro:
+    """One Euro フィルタ（Casiez et al. 2012）。止まっている時はブレを強く抑え、速く動くと追従が速くなる。
+    min_cutoff[Hz]: 小さいほど静止時のブレが減る（遅れは増える）。beta: 速さに応じて遅れを減らす量。"""
+
+    def __init__(self, min_cutoff: float = 1.0, beta: float = 0.0, d_cutoff: float = 1.0):
+        self.min_cutoff, self.beta, self.d_cutoff = min_cutoff, beta, d_cutoff
+        self.x: float | None = None
+        self.dx = 0.0
+
+    @staticmethod
+    def _alpha(dt: float, cutoff: float) -> float:
+        tau = 1.0 / (2 * math.pi * cutoff)
+        return 1.0 / (1.0 + tau / dt)
+
+    def __call__(self, x: float, dt: float) -> float:
+        if self.x is None or dt <= 0:
+            self.x = x
+            return x
+        dx = (x - self.x) / dt
+        self.dx += self._alpha(dt, self.d_cutoff) * (dx - self.dx)
+        cutoff = self.min_cutoff + self.beta * abs(self.dx)
+        self.x += self._alpha(dt, cutoff) * (x - self.x)
+        return self.x
+
+
+class BoxFilter:
+    """枠（中心・大きさ・角度）を One Euro で安定させる。大きさは位置より強めに抑える。
+    beta は枠の幅に対する相対速度で効くので、顔の遠近に関係なく同じ感覚で調整できる。"""
+
+    def __init__(self):
+        self.f = [OneEuro() for _ in range(5)]
+
+    def __call__(self, box: Box, dt: float, min_cutoff: float, beta: float) -> Box:
+        scale = max(box.w, 1.0)
+        for i, f in enumerate(self.f):
+            size_like = i in (2, 3)
+            f.min_cutoff = min_cutoff * (0.5 if size_like else 1.0)
+            f.beta = beta / scale * (0.5 if size_like else 1.0)
+        return Box(self.f[0](box.cx, dt), self.f[1](box.cy, dt), self.f[2](box.w, dt),
+                   self.f[3](box.h, dt), self.f[4](box.angle, dt))
+
+
 def box_from_points(pts: np.ndarray, part: str, angle: float = 0.0) -> Box:
     """点群（N×2, ピクセル）を、角度 angle で回した座標系で囲む枠を作る。"""
     aspect, pad = PART_SHAPE[part]

@@ -83,6 +83,8 @@ class Tracker(threading.Thread):
         self._det_conf = None
         self._ts = 0
         self._boxes: dict[str, geo.Box] = {}
+        self._filters: dict[str, geo.BoxFilter] = {}
+        self._last_proc = 0.0
         self._last_seen: dict[str, float] = {}
         self._held: dict[str, PartState] = {}
         self._prev_gray = None
@@ -216,6 +218,9 @@ class Tracker(threading.Thread):
 
         # 平滑化 → 切り抜き
         smooth = float(s["box_smoothing"])
+        stabilize = bool(s["stabilize"])
+        dt = min(max(now - self._last_proc, 1e-3), 0.2) if self._last_proc else 1 / 30
+        self._last_proc = now
         enabled = {p for t, parts in geo.TOGGLE_PARTS.items() if s[f"track_{t}"] for p in parts}
         hold = float(s["lost_hold_s"])
         long_side = int(s["crop_size"])
@@ -223,7 +228,12 @@ class Tracker(threading.Thread):
             box = detected.get(name)
             if box is not None:
                 prev = self._boxes.get(name)
-                if prev is not None and smooth > 0:
+                if stabilize:   # One Euro：静止時のブレを抑え、動いた時は素早く追従
+                    flt = self._filters.get(name) if prev is not None else None
+                    if flt is None:
+                        flt = self._filters[name] = geo.BoxFilter()
+                    box = flt(box, dt, float(s["stabilize_cutoff"]), float(s["stabilize_beta"]))
+                elif prev is not None and smooth > 0:
                     box = prev.lerp(box, 1.0 - min(smooth, 0.95))
                 self._boxes[name] = box
                 self._last_seen[name] = now
@@ -241,6 +251,7 @@ class Tracker(threading.Thread):
                 lost_for = now - self._last_seen.get(name, 0)
                 if lost_for > hold:
                     self._boxes.pop(name, None)
+                    self._filters.pop(name, None)
                 if name in enabled and name in self._held and lost_for <= hold:
                     h = self._held[name]
                     snap.parts[name] = PartState(h.image, h.pos, h.size, False)

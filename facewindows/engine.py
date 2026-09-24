@@ -446,7 +446,15 @@ class Engine:
                     self._mirror[key] = w
                     self.wins.append(w)
                 if k == 0:
-                    w.x, w.y, w.w, w.h = tx, ty, tw, th
+                    glide = float(s["mirror_glide"])
+                    if glide > 0 and w.scale >= 1.0:   # 検出(30fps)の間も描画(60fps)でなめらかに動かす
+                        a = 1 - math.exp(-dt / glide)
+                        w.x += (tx - w.x) * a
+                        w.y += (ty - w.y) * a
+                        w.w += (tw - w.w) * a
+                        w.h += (th - w.h) * a
+                    else:
+                        w.x, w.y, w.w, w.h = tx, ty, tw, th
                     w.image_mode = "live"
                     w.alpha = 1.0
                     w.scale = min(1.0, w.scale + dt / SPAWN_ANIM_S)

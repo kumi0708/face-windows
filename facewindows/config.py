@@ -47,7 +47,10 @@ DEFAULTS: dict = {
     "motion_enabled": True,       # 動きを生成トリガーに使う
     "motion_threshold": 25,       # フレーム差分の画素しきい値（0-255）
     "motion_sensitivity": 1.0,    # 動き量 → 生成量のゲイン
-    "box_smoothing": 0.35,        # 切り抜き枠の平滑化（0=なし）
+    "box_smoothing": 0.35,        # 切り抜き枠の平滑化（0=なし）。ブレ補正OFFの時に使う
+    "stabilize": True,            # ブレ補正（One Euro フィルタ）
+    "stabilize_cutoff": 1.2,      # 静止時のブレ補正 [Hz]（小さいほど強い）
+    "stabilize_beta": 4.0,        # 動いた時の追従性（大きいほど遅れが少ない）
     "rotate_crops": True,         # 顔の傾きに合わせて切り抜きを回転
     "extra_detect_interval": 2,   # Body/Arms/Hands 検出の間引き（Nフレームに1回）
     "lost_hold_s": 0.6,           # 追跡失敗時に最終映像を保持する秒数
@@ -86,6 +89,7 @@ DEFAULTS: dict = {
     "mirror_reactions": False,    # ミラー表示でも口/頭の反応BURST（飛び回る窓）を出す
     "mirror_trail_lag": 0.12,     # 残像1段ごとの遅れ(秒)
     "mirror_trail_opacity": 0.8,
+    "mirror_glide": 0.035,        # 検出の間を補間して窓をなめらかに動かす時定数(秒)。0=検出位置へ即移動
     "crop_size": 240,             # 切り抜き解像度（長辺px）。ミラー表示で大きく映すなら 360〜480
     # DISPLAY
     "render_mode": "overlay",     # overlay（疑似）/ native（OS実ウィンドウ）/ hybrid
