@@ -365,10 +365,11 @@ class ControlPanel(QWidget):
             section("表示モード"),
             b.combo("layout_mode", "表示モード"),
             QLabel("ミラー：カメラ画像とデスクトップを 1:1 に対応させ、各部位をカメラ上と同じ位置・大きさの窓で表示。"
-                   "BURST・口/頭の反応で生まれた窓は通常どおり動き回る。"),
+                   "口/頭の反応BURSTは既定OFF（BURSTボタンで出した窓は動き回る）。"),
             b.combo("mirror_fit", "カメラ→画面の合わせ方"),
             b.slider("mirror_scale", "窓の大きさ（部位比）", 0.5, 2.0, 0.05, "{:.2f}"),
-            b.slider("mirror_trails", "残像の窓の数", 0, 8, 1),
+            b.slider("mirror_trails", "残像の窓の数（0=なし）", 0, 8, 1),
+            b.check("mirror_reactions", "ミラーでも口/頭の反応BURSTを出す（窓が飛び回る）"),
             b.slider("mirror_trail_lag", "残像1段の遅れ", 0.02, 0.6, 0.01, "{:.2f}", " 秒"),
             b.slider("mirror_trail_opacity", "残像の濃さ", 0.1, 1, 0.05, "{:.2f}"),
             b.combo("crop_size", "切り抜き解像度"),

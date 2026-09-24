@@ -233,7 +233,8 @@ def mirror_snap(parts=("face", "left_eye", "mouth"), pos=(0.5, 0.5), size=0.25):
 
 
 def make_mirror(**over):
-    e = make_engine(layout_mode="mirror", mirror_trails=2, **over)
+    over.setdefault("mirror_trails", 2)
+    e = make_engine(layout_mode="mirror", **over)
     e.screen_rect = (0.0, 0.0, 1920.0, 1200.0)
     return e
 
@@ -311,3 +312,38 @@ def test_switching_back_to_swarm_removes_mirror_windows():
         t += 1 / 60
         e.update(1 / 60, t, snap)
     assert not any(w.mirror_key for w in e.wins)
+
+
+def test_mirror_ignores_reaction_bursts_by_default():
+    e = make_mirror()
+    snap = mirror_snap()
+    e.update(1 / 60, 0.0, snap, events=[("head_move", 0.0), ("mouth_open", 0.0)])
+    assert all(w.mirror_key is not None for w in e.wins)
+    e.s["mirror_reactions"] = True
+    e.update(1 / 60, 1 / 60, snap, events=[("head_move", 0.0)])
+    assert any(w.mirror_key is None for w in e.wins)
+
+
+def test_mirror_windows_stay_exactly_on_target_while_moving():
+    e = make_mirror(mirror_trails=0)
+    t = 0.0
+    for i in range(60):
+        t += 1 / 60
+        snap = mirror_snap(pos=(0.2 + i * 0.01, 0.5 + 0.1 * math.sin(i / 5)))
+        e.update(1 / 60, t, snap)
+        for w in e.wins:
+            x, y, ww, hh = e.mirror_target(w.part, snap)
+            assert (w.x, w.y, w.w, w.h) == pytest.approx((x, y, ww, hh))
+
+
+def test_switch_to_mirror_fades_swarm_windows():
+    e = make_engine(spawn_rate=0.0, life_s=100.0)
+    e.screen_rect = (0.0, 0.0, 1920.0, 1200.0)
+    snap = mirror_snap()
+    e.burst(snap, 0.0, 10)
+    e.s["layout_mode"] = "mirror"
+    t = 0.0
+    for _ in range(30):
+        t += 1 / 60
+        e.update(1 / 60, t, snap)
+    assert e.wins and all(w.mirror_key is not None for w in e.wins)

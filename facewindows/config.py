@@ -82,7 +82,8 @@ DEFAULTS: dict = {
     "layout_mode": "swarm",
     "mirror_fit": "cover",        # cover（比率維持で画面を埋める）/ contain（比率維持で収める）/ stretch
     "mirror_scale": 1.0,          # 部位の大きさに対する窓の大きさ
-    "mirror_trails": 3,           # 部位ごとの残像窓の数（遅れて追従＋過去映像）
+    "mirror_trails": 0,           # 部位ごとの残像窓の数（遅れて追従＋過去映像）。0=ミラーの位置だけに表示
+    "mirror_reactions": False,    # ミラー表示でも口/頭の反応BURST（飛び回る窓）を出す
     "mirror_trail_lag": 0.12,     # 残像1段ごとの遅れ(秒)
     "mirror_trail_opacity": 0.8,
     "crop_size": 240,             # 切り抜き解像度（長辺px）。ミラー表示で大きく映すなら 360〜480
@@ -135,8 +136,8 @@ BUILTIN_PRESETS: dict[str, dict] = {
         "spawn_area": "face", "delay_ratio": 0.25,
     },
     "ミラー（顔を再構成）": {
-        "layout_mode": "mirror", "mirror_trails": 3, "mirror_trail_lag": 0.12, "crop_size": 360,
-        "box_smoothing": 0.2, "rotate_crops": False, "shadow": True, "mouth_burst": True, "head_burst": False,
+        "layout_mode": "mirror", "mirror_trails": 0, "mirror_reactions": False, "crop_size": 360,
+        "box_smoothing": 0.2, "rotate_crops": False, "shadow": True,
     },
     "ランダム飛散": {
         "max_windows": 150, "spawn_rate": 45.0, "burst_count": 60, "life_s": 5.0,

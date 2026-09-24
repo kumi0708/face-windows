@@ -77,6 +77,7 @@ class Engine:
         self.rect = (0.0, 0.0, 1920.0, 1080.0)          # 窓が動ける範囲（管理画面を除く）
         self.screen_rect = (0.0, 0.0, 1920.0, 1080.0)   # ミラー表示でカメラと 1:1 に対応させる画面
         self._mirror: dict[tuple, Win] = {}
+        self._layout = settings["layout_mode"]
 
     # ---------- helpers ----------
     def to_screen(self, nx: float, ny: float) -> tuple[float, float]:
@@ -252,6 +253,12 @@ class Engine:
             return
 
         mirror = s["layout_mode"] == "mirror"
+        if s["layout_mode"] != self._layout:
+            self._layout = s["layout_mode"]
+            if mirror:   # ミラーへ切り替えたら、飛び回っていた増殖の窓は消す
+                for w in self.wins:
+                    if w.mirror_key is None and w.dying_since is None:
+                        w.dying_since = now
         if self.running and mirror:
             self._update_mirror(dt, now, snap)
         elif self._mirror:
@@ -275,6 +282,8 @@ class Engine:
                 direction = snap.motion_dir
             for _ in range(n):
                 self.spawn(snap, now, direction=direction)
+            if mirror and not s["mirror_reactions"]:
+                events = ()   # ミラー表示：窓はミラーの位置だけ（勝手に飛び回る窓を出さない）
             for kind, _t in events:
                 if kind == "mouth_open" and s["mouth_burst"] and "mouth" in snap.parts:
                     mx, my = self.to_screen(*snap.parts["mouth"].pos)
