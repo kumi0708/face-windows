@@ -47,6 +47,7 @@ class Win:
     scale: float = 1.0
     alpha: float = 1.0
     mirror_key: tuple | None = None   # ミラー表示の窓 (part, 残像の段数 0=本体)
+    fade_from: float | None = None    # 消えるアニメーション開始時の不透明度
     phase: float = field(default_factory=lambda: random.uniform(0, math.tau))
 
     @property
@@ -336,13 +337,19 @@ class Engine:
                 if k >= 1:
                     self._remove(w)
                     continue
-                w.scale, w.alpha = 1 - 0.5 * k, 1 - k
+                if w.fade_from is None:   # 今の濃さから消していく（一瞬濃く戻らないように）
+                    w.fade_from = w.alpha
+                w.scale, w.alpha = 1 - 0.5 * k, w.fade_from * (1 - k)
             else:
                 w.scale = min(1.0, 0.3 + 0.7 * age / SPAWN_ANIM_S)
                 w.alpha = 1.0
-                if w.afterimage:
+                if w.afterimage:   # 寿命の最後の fade 秒で薄くなる
                     remain = w.life - age
-                    w.alpha = max(0.15, min(1.0, remain / max(float(s["afterimage_s"]), 0.1)))
+                    if w.mode == "stamp":
+                        fade, floor = float(s["mirror_stamp_fade"]), 0.0
+                    else:
+                        fade, floor = float(s["afterimage_s"]), 0.15
+                    w.alpha = max(floor, min(1.0, remain / max(fade, 0.01)))
 
             if w.mode == "stamp":   # ミラーで置いていかれた窓：その場から動かない
                 continue

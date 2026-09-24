@@ -441,3 +441,21 @@ def test_stamp_freeze_option():
     e.update(1 / 60, 0.1, mirror_snap(pos=(0.6, 0.5)))
     left = [w for w in e.wins if w.mode == "stamp"]
     assert left and all(w.image_mode == "snap" for w in left)
+
+
+def test_stamp_fade_timing_and_no_flash():
+    e = make_mirror(mirror_style="stamp", mirror_stamp_move=0.05, mirror_stamp_interval=0.0,
+                    mirror_stamp_life=2.0, mirror_stamp_fade=1.0)
+    e.update(1 / 60, 0.0, mirror_snap(pos=(0.3, 0.5)))
+    e.update(1 / 60, 0.2, mirror_snap(pos=(0.6, 0.5)))       # ここで古い窓が置いていかれる
+    left = next(w for w in e.wins if w.mode == "stamp")
+    t, alphas = 0.2, []
+    snap = mirror_snap(pos=(0.6, 0.5))
+    while left in e.wins:
+        t += 1 / 60
+        e.update(1 / 60, t, snap)
+        alphas.append((round(t - 0.2, 3), left.alpha))
+    assert all(a == pytest.approx(1.0) for dt_, a in alphas if dt_ < 0.95)   # 最初の1秒は濃いまま
+    assert any(0.3 < a < 0.7 for dt_, a in alphas if 1.4 < dt_ < 1.6)         # 途中で半分くらい
+    assert all(b <= a + 1e-9 for (_, a), (_, b) in zip(alphas, alphas[1:]))  # 一度も濃く戻らない
+    assert 2.0 <= alphas[-1][0] <= 2.0 + 0.3                                  # 約2秒で消える

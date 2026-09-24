@@ -86,7 +86,8 @@ DEFAULTS: dict = {
     "mirror_style": "stamp",      # stamp: ずれたら新しい窓を生成（窓は動かない）/ track: 窓が部位を追いかける
     "mirror_stamp_move": 0.2,     # 窓の大きさの何割ずれたら新しい窓を生成するか
     "mirror_stamp_interval": 0.05,  # 同じ部位の生成間隔の最小値(秒)
-    "mirror_stamp_life": 2.5,     # 置いていかれた窓が残る秒数
+    "mirror_stamp_life": 2.5,     # 置いていかれてから消えるまでの秒数（フェード込み）
+    "mirror_stamp_fade": 1.0,     # そのうち最後の何秒で薄くなっていくか（0=フェードせずに消える）
     "mirror_stamp_freeze": False, # 置いていかれた窓の映像を止める（OFF=ライブ映像のまま）
     "mirror_fit": "cover",        # cover（比率維持で画面を埋める）/ contain（比率維持で収める）/ stretch
     "mirror_scale": 1.0,          # 部位の大きさに対する窓の大きさ
