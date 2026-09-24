@@ -83,6 +83,11 @@ DEFAULTS: dict = {
     "face_push": 1.0,             # 顔の移動が窓に与える勢い
     # LAYOUT（swarm: 顔から窓が増殖して動き回る / mirror: カメラ＝デスクトップ 1:1 で部位の位置・大きさに窓を置く）
     "layout_mode": "swarm",
+    "mirror_style": "stamp",      # stamp: ずれたら新しい窓を生成（窓は動かない）/ track: 窓が部位を追いかける
+    "mirror_stamp_move": 0.2,     # 窓の大きさの何割ずれたら新しい窓を生成するか
+    "mirror_stamp_interval": 0.05,  # 同じ部位の生成間隔の最小値(秒)
+    "mirror_stamp_life": 2.5,     # 置いていかれた窓が残る秒数
+    "mirror_stamp_freeze": False, # 置いていかれた窓の映像を止める（OFF=ライブ映像のまま）
     "mirror_fit": "cover",        # cover（比率維持で画面を埋める）/ contain（比率維持で収める）/ stretch
     "mirror_scale": 1.0,          # 部位の大きさに対する窓の大きさ
     "mirror_trails": 0,           # 部位ごとの残像窓の数（遅れて追従＋過去映像）。0=ミラーの位置だけに表示
@@ -123,6 +128,7 @@ CHOICES = {
     "render_mode": ["overlay", "native", "hybrid"],
     "layout_mode": ["swarm", "mirror"],
     "mirror_fit": ["cover", "contain", "stretch"],
+    "mirror_style": ["stamp", "track"],
     "crop_size": [160, 240, 360, 480],
     "window_style": ["win11_light", "win11_dark", "macos", "retro", "frameless"],
 }

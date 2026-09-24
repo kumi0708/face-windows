@@ -234,6 +234,7 @@ def mirror_snap(parts=("face", "left_eye", "mouth"), pos=(0.5, 0.5), size=0.25):
 
 def make_mirror(**over):
     over.setdefault("mirror_trails", 2)
+    over.setdefault("mirror_style", "track")
     e = make_engine(layout_mode="mirror", **over)
     e.screen_rect = (0.0, 0.0, 1920.0, 1200.0)
     return e
@@ -385,3 +386,58 @@ def test_mirror_glide_moves_smoothly_between_detections():
     steps = np.diff([e.mirror_target("face", snap)[0]] + xs)
     assert steps.max() < (target - e.mirror_target("face", snap)[0]) * 0.5   # 一気に跳ばない
     assert abs(xs[-1] - target) < 2                                            # 0.2秒で追いつく
+
+
+# ---------- mirror: stamp style（ずれたら新しい窓を生成） ----------
+def test_stamp_still_face_keeps_one_window_per_part():
+    e = make_mirror(mirror_style="stamp")
+    snap = mirror_snap()
+    t = 0.0
+    for _ in range(300):              # 5秒静止
+        t += 1 / 60
+        e.update(1 / 60, t, snap)
+    assert len(e.wins) == 3
+    assert all(w.mirror_key and w.mode == "mirror" for w in e.wins)
+
+
+def test_stamp_moving_face_spawns_new_windows_and_old_ones_stay_put():
+    e = make_mirror(mirror_style="stamp", mirror_stamp_move=0.2, mirror_stamp_interval=0.0,
+                    mirror_stamp_life=10.0, max_windows=500, adaptive=False)
+    t = 0.0
+    positions = {}
+    for i in range(60):
+        t += 1 / 60
+        e.update(1 / 60, t, mirror_snap(pos=(0.2 + i * 0.01, 0.5)))
+        for w in e.wins:
+            positions.setdefault(w.id, []).append((w.x, w.y, w.w, w.h))
+    faces = [w for w in e.wins if w.part == "face"]
+    assert len(faces) > 3                                   # 動いた分だけ生成された
+    for track in positions.values():                        # どの窓も一度も動いていない
+        assert all(p == pytest.approx(track[0]) for p in track)
+    newest = e._mirror[("face", 0)]
+    assert e.wins.index(newest) > e.wins.index(faces[0])    # 新しい窓が手前
+    tx, ty, _, _ = e.mirror_target("face", mirror_snap(pos=(0.2 + 59 * 0.01, 0.5)))
+    assert math.hypot(newest.x - tx, newest.y - ty) <= 0.2 * min(newest.w, newest.h)   # ずれはしきい値以内
+
+
+def test_stamp_left_windows_expire_and_respect_max():
+    e = make_mirror(mirror_style="stamp", mirror_stamp_move=0.05, mirror_stamp_interval=0.0,
+                    mirror_stamp_life=0.5, max_windows=20, adaptive=False)
+    t = 0.0
+    for i in range(120):
+        t += 1 / 60
+        e.update(1 / 60, t, mirror_snap(pos=(0.2 + (i % 40) * 0.015, 0.5)))
+        assert len(e.wins) <= 20
+    for _ in range(120):              # 静止すると置いていかれた窓は消えて、部位ごと1枚に戻る
+        t += 1 / 60
+        e.update(1 / 60, t, mirror_snap(pos=(0.5, 0.5)))
+    assert len(e.wins) == 3
+
+
+def test_stamp_freeze_option():
+    e = make_mirror(mirror_style="stamp", mirror_stamp_move=0.05, mirror_stamp_interval=0.0,
+                    mirror_stamp_freeze=True)
+    e.update(1 / 60, 0.0, mirror_snap(pos=(0.3, 0.5)))
+    e.update(1 / 60, 0.1, mirror_snap(pos=(0.6, 0.5)))
+    left = [w for w in e.wins if w.mode == "stamp"]
+    assert left and all(w.image_mode == "snap" for w in left)

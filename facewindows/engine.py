@@ -344,6 +344,8 @@ class Engine:
                     remain = w.life - age
                     w.alpha = max(0.15, min(1.0, remain / max(float(s["afterimage_s"]), 0.1)))
 
+            if w.mode == "stamp":   # ミラーで置いていかれた窓：その場から動かない
+                continue
             # 動き
             if w.mode == "follow" and w.part in snap.parts:
                 tx, ty = self.to_screen(*snap.parts[w.part].pos)
@@ -424,6 +426,68 @@ class Engine:
         return cx, cy, bw * sx * k, bw / geo.PART_SHAPE[part][0] * sy * k
 
     def _update_mirror(self, dt: float, now: float, snap) -> None:
+        if self.s["mirror_style"] == "stamp":
+            self._update_mirror_stamp(now, snap)
+        else:
+            self._update_mirror_track(dt, now, snap)
+
+    def _update_mirror_stamp(self, now: float, snap) -> None:
+        """窓は動かさない。部位の位置（大きさ）がずれたら、今のミラー位置に新しい窓を生成する。
+        置いていかれた窓はその場に残り、一定時間でフェードして消える。"""
+        s = self.s
+        move_thr = float(s["mirror_stamp_move"])
+        interval = float(s["mirror_stamp_interval"])
+        parts = self.enabled_parts(snap) if snap.frame_size[0] else []
+        order: list[Win] = []
+        for part in sorted(parts, key=lambda p: MIRROR_Z.index(p) if p in MIRROR_Z else 99):
+            tx, ty, tw, th = self.mirror_target(part, snap)
+            key = (part, 0)
+            cur = self._mirror.get(key)
+            if cur is not None and cur.dying_since is None:
+                moved = math.hypot(tx - cur.x, ty - cur.y) > move_thr * min(cur.w, cur.h)
+                resized = abs(tw / max(cur.w, 1.0) - 1) > 0.25
+                if (moved or resized) and now - cur.born >= interval:
+                    self._leave_stamp(cur, now)
+                    cur = None
+            if cur is None or cur.dying_since is not None:
+                limit = max(len(parts), self.effective_max())
+                while len(self.wins) >= limit:
+                    old = next((w for w in self.wins if w.mirror_key is None), None)
+                    if old is None:
+                        break
+                    self._remove(old)
+                cur = Win(self._next_id, part, tx, ty, tw, th, "mirror", now, math.inf,
+                          backend=self._choose_backend() or "overlay", mirror_key=key)
+                self._next_id += 1
+                cur.scale = 0.6
+                self._mirror[key] = cur
+                self.wins.append(cur)
+                self._spawn_count += 1
+            cur.scale = min(1.0, 0.6 + 0.4 * (now - cur.born) / SPAWN_ANIM_S)
+            order.append(cur)
+        wanted = {w.mirror_key for w in order}
+        for key, w in list(self._mirror.items()):
+            if key not in wanted:           # 部位を見失った / 残像設定の変更
+                w.dying_since = w.dying_since or now
+                del self._mirror[key]
+        # 描画順：置いていかれた窓・増殖窓（奥、古い順）→ 今の窓（手前）
+        ids = {id(w) for w in order}
+        self.wins = [w for w in self.wins if id(w) not in ids] + order
+
+    def _leave_stamp(self, w: Win, now: float) -> None:
+        """今の窓をその場に置いていく（以後は動かず、寿命で消える）。"""
+        del self._mirror[w.mirror_key]
+        w.mirror_key = None
+        w.mode = "stamp"
+        w.vx = w.vy = 0.0
+        w.scale = 1.0
+        w.afterimage = True     # 寿命の終わりに向けてフェードし、そのまま消える
+        w.life = (now - w.born) + float(self.s["mirror_stamp_life"])
+        if self.s["mirror_stamp_freeze"]:
+            w.image_mode = "snap"
+            w.frozen = w.last_image
+
+    def _update_mirror_track(self, dt: float, now: float, snap) -> None:
         """部位ごとに本体1枚＋残像N枚。本体はカメラの位置・大きさにそのまま置き、残像は段ごとに遅れて追う。"""
         s = self.s
         n = max(0, int(s["mirror_trails"]))
