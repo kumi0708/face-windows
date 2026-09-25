@@ -119,6 +119,7 @@ DEFAULTS: dict = {
     "min_windows": 10,
     # SYSTEM
     "panel_on_top": True,
+    "panel_mode": "full",         # 管理画面：full（すべて）/ mini（小さな操作バー）/ hidden（非表示、トレイ / Ctrl+Alt+W で戻す）
     "autostart": False,
 }
 
@@ -129,6 +130,7 @@ CHOICES = {
     "motion_mode": ["follow", "scatter", "drift", "fixed", "mix"],
     "edge_mode": ["bounce", "wrap", "kill", "respawn"],
     "render_mode": ["overlay", "native", "hybrid"],
+    "panel_mode": ["full", "mini", "hidden"],
     "layout_mode": ["swarm", "mirror"],
     "mirror_fit": ["cover", "contain", "stretch"],
     "mirror_style": ["stamp", "track"],
@@ -162,7 +164,7 @@ BUILTIN_PRESETS: dict[str, dict] = {
 
 # プリセット適用時に上書きしない環境依存の設定
 PRESET_EXCLUDE = {"camera_index", "camera_res", "camera_fps", "mirror", "target_screen",
-                  "render_mode", "native_max", "panel_on_top", "autostart"}
+                  "render_mode", "native_max", "panel_on_top", "panel_mode", "autostart"}
 
 
 def defaults() -> dict:

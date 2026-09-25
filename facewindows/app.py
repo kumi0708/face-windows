@@ -9,14 +9,15 @@ import traceback
 from pathlib import Path
 
 import psutil
-from PySide6.QtCore import QRect, Qt, QTimer
-from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
+from PySide6.QtCore import QRect, QRectF, Qt, QTimer
+from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap
+from PySide6.QtWidgets import QApplication, QFileDialog, QMenu, QMessageBox, QSystemTrayIcon
 
 from . import config
 from .camera import list_cameras
 from .engine import Engine
 from .hotkeys import HOTKEYS, GlobalHotkeys
-from .panel import ControlPanel
+from .panel import ControlPanel, MiniBar
 from .render import NativePool, Overlay
 
 PANEL_W = 460
@@ -60,10 +61,11 @@ class Controller:
         self.native = NativePool(self._on_native_closed)
         self.panel = ControlPanel(self)
         self.panel.closeEvent = self._panel_close
+        self.mini = MiniBar(self)
+        self.tray = self._make_tray()
         self.refresh_cameras()
         self._place_windows()
-        self.panel.show()
-        self._apply_panel_on_top()
+        self.set_panel_mode(self.settings["panel_mode"], initial=True)
 
         self.timer = QTimer()
         self.timer.setTimerType(Qt.PreciseTimer)
@@ -100,20 +102,122 @@ class Controller:
         av = scr.availableGeometry()
         w = min(PANEL_W, av.width() // 2)
         self.panel.setGeometry(av.right() - w - 8, av.top() + 32, w, av.height() - 40)
+        self.mini.adjustSize()
+        mw = max(self.mini.sizeHint().width(), 380)
+        self.mini.setGeometry(av.right() - mw - 8, av.top() + 32, mw, self.mini.sizeHint().height())
         self.overlay.place_on(scr)
+
+    def control_window(self):
+        """今表示している操作用ウィンドウ（フル / ミニ）。非表示なら None。"""
+        mode = self.settings["panel_mode"]
+        w = self.panel if mode == "full" else self.mini if mode == "mini" else None
+        return w if w is not None and w.isVisible() else None
 
     def _apply_panel_on_top(self):
         on = bool(self.settings["panel_on_top"])
-        self.panel.setWindowFlag(Qt.WindowStaysOnTopHint, on)
-        self.panel.show()
-        if on:
-            self.panel.raise_()
+        for w in (self.panel, self.mini):
+            if bool(w.windowFlags() & Qt.WindowStaysOnTopHint) != on:
+                visible = w.isVisible()
+                w.setWindowFlag(Qt.WindowStaysOnTopHint, on)   # フラグ変更で隠れるので表示中なら出し直す
+                if visible:
+                    w.show()
+        cw = self.control_window()
+        if on and cw is not None:
+            cw.raise_()
+
+    # ---------- 管理画面の表示モード（フル / ミニ / 非表示） ----------
+    def can_hide_panel(self) -> bool:
+        """非表示にしても戻す手段（トレイアイコン / グローバルホットキー）があるか。"""
+        return self.tray is not None or self.hotkeys.label("panel") is not None
+
+    def set_panel_mode(self, mode: str, initial: bool = False):
+        if mode == "hidden" and not self.can_hide_panel():
+            mode = "mini"
+            self.warnings["panel"] = "トレイアイコンもホットキーも使えないため、非表示の代わりにミニ表示にしました"
+        s = self.settings
+        if s["panel_mode"] != mode:
+            s["panel_mode"] = mode
+            self.panel.b.refresh_all()
+        if mode == "full":
+            self.mini.hide()
+            self.panel.show()
+            self.panel.activateWindow()
+        elif mode == "mini":
+            self.panel.hide()
+            self.mini.show()
+        else:
+            self.panel.hide()
+            self.mini.hide()
+            if self.tray is not None and not initial:
+                key = self.hotkeys.label("panel")
+                how = "トレイのアイコン" + (f"、または {key} " if key else "")
+                self.tray.showMessage("FACE WINDOWS", f"管理画面を隠しました。{how}で戻せます。",
+                                      QSystemTrayIcon.Information, 3000)
+        self._apply_panel_on_top()
+        self._update_tray_menu()
+
+    def toggle_panel(self):
+        self.set_panel_mode("hidden" if self.settings["panel_mode"] == "full" else "full")
+
+    def _make_tray(self):
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            return None
+        pm = QPixmap(64, 64)
+        pm.fill(Qt.transparent)
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor("#16181d"))
+        p.drawRoundedRect(QRectF(2, 2, 60, 60), 12, 12)
+        for (x, y, w, h), c in (((10, 12, 30, 24), "#8ab4f8"), ((24, 28, 30, 24), "#f3f3f3")):
+            p.setBrush(QColor(c))
+            p.drawRect(x, y, w, h)
+            p.setBrush(QColor("#3a3f4b"))
+            p.drawRect(x, y, w, 5)
+        p.end()
+        tray = QSystemTrayIcon(QIcon(pm))
+        tray.setToolTip("FACE WINDOWS")
+        menu = QMenu()
+        self._tray_actions = {}
+        items = (("full", "管理画面を表示", lambda: self.set_panel_mode("full")),
+                 ("mini", "ミニ表示", lambda: self.set_panel_mode("mini")),
+                 ("hidden", "管理画面を隠す", lambda: self.set_panel_mode("hidden")),
+                 (None, None, None),
+                 ("start", "▶ START", self.start), ("pause", "❚❚ PAUSE", self.toggle_pause),
+                 ("stop", "■ STOP", self.stop), (None, None, None),
+                 ("quit", "終了", self.quit))
+        for key, text, fn in items:
+            if key is None:
+                menu.addSeparator()
+                continue
+            act = QAction(text, menu)
+            act.triggered.connect(fn)
+            menu.addAction(act)
+            self._tray_actions[key] = act
+        tray.setContextMenu(menu)
+        self._tray_menu = menu
+        tray.activated.connect(self._on_tray_activated)
+        tray.show()
+        return tray
+
+    def _on_tray_activated(self, reason):
+        # Windows はアイコンのクリックで表示/非表示。macOS はクリックでメニューが開くのでメニューから操作
+        if reason in (QSystemTrayIcon.Trigger, QSystemTrayIcon.DoubleClick) and sys.platform != "darwin":
+            self.toggle_panel()
+
+    def _update_tray_menu(self):
+        if self.tray is None:
+            return
+        mode = self.settings["panel_mode"]
+        for key in ("full", "mini", "hidden"):
+            self._tray_actions[key].setEnabled(key != mode)
+        self.tray.setToolTip(f"FACE WINDOWS — {self.state}")
 
     def art_rect(self):
         """作品の描画範囲（管理ウィンドウを避ける）。"""
         av = self.target_screen().availableGeometry()
         x0, y0, x1, y1 = av.left(), av.top(), av.right(), av.bottom()
-        if self.settings["avoid_panel"] and self.panel.isVisible():
+        if self.settings["avoid_panel"] and self.control_window() is self.panel:   # ミニ/非表示なら画面全体
             pg = self.panel.frameGeometry()
             if pg.intersects(av):
                 if pg.center().x() > av.center().x():
@@ -193,6 +297,9 @@ class Controller:
         try:
             self.stop()
         finally:
+            if self.tray is not None:
+                self.tray.hide()
+            self.mini.hide()
             self.hotkeys.stop()
             self.native.destroy()
             self.overlay.close()
@@ -209,6 +316,8 @@ class Controller:
             self.quit()
         elif name == "pause":
             self.toggle_pause()
+        elif name == "panel":
+            self.toggle_panel()
 
     def hotkey_text(self):
         if sys.platform != "win32":
@@ -216,6 +325,7 @@ class Controller:
                     "Esc=STOP, F5=START, B=BURST, ⌘Q/Ctrl+Q=終了。")
         ok = ", ".join(self.hotkeys.registered) or "なし"
         msg = (f"緊急停止: {HOTKEYS[1][3]}（STOP） / {HOTKEYS[2][3]}（終了） / {HOTKEYS[3][3]}（PAUSE）"
+               f" / {self.hotkeys.label('panel') or HOTKEYS[4][3]}（管理画面の表示/非表示）"
                f" — どのアプリが前面でも有効。管理画面上では Esc=STOP, F5=START, B=BURST, Ctrl+Q=終了。")
         if self.hotkeys.failed:
             msg += f"  ※登録失敗: {', '.join(self.hotkeys.failed)}（他アプリが使用中）。管理画面のSTOP / Escを使用してください。"
@@ -246,6 +356,8 @@ class Controller:
             self._place_windows()
         elif key == "panel_on_top":
             self._apply_panel_on_top()
+        elif key == "panel_mode":   # コンボボックスの操作中に自分自身を隠さないよう、次のループで切り替える
+            QTimer.singleShot(0, lambda: self.set_panel_mode(s["panel_mode"]))
         elif key == "max_windows":
             self.engine.cap = max(self.engine.cap, float(s["min_windows"]))
 
@@ -255,7 +367,7 @@ class Controller:
         self.settings.update(new)   # 同じ dict を共有しているので参照先はそのまま
         self.panel.b.refresh_all()
         self.panel.refresh_render_label()
-        self._apply_panel_on_top()
+        self.set_panel_mode(self.settings["panel_mode"])
         if screen_changed:
             self._place_windows()
 
@@ -306,15 +418,16 @@ class Controller:
                     events.append(self.tracker.events.popleft())
                 self.engine.update(dt, t0, snap, events, self.render_fps)
             self._flush_removed()
+            cw = self.control_window()
             if self.overlay.isVisible():
-                self.overlay.exclude = self.panel.frameGeometry() if self.panel.isVisible() else None
+                self.overlay.exclude = cw.frameGeometry() if cw is not None else None
                 self.overlay.repaint()
             if self.settings["render_mode"] != "overlay" or self.native.used:
-                below = int(self.panel.winId()) if self.settings["panel_on_top"] else None
+                below = int(cw.winId()) if cw is not None and self.settings["panel_on_top"] else None
                 restacked = self.native.sync(self.engine.wins, snap, self.tracker, self.target_screen(),
                                              float(self.settings["opacity"]), below)
-                if restacked and self.settings["panel_on_top"]:
-                    self.panel.raise_()   # Windows 以外：実ウィンドウの上に管理ウィンドウを戻す
+                if restacked and cw is not None and self.settings["panel_on_top"]:
+                    cw.raise_()   # Windows 以外：実ウィンドウの上に管理ウィンドウを戻す
             self.warnings.pop("tick", None)
         except Exception as e:  # 描画ループは止めない
             self.warnings["tick"] = f"描画ループエラー: {e!r}"
@@ -345,7 +458,8 @@ class Controller:
             self.warnings.pop("tracker", None)
         snap = tr.snapshot() if tr else None
         if snap is not None and snap.preview is not None:
-            p.set_preview(snap.preview)
+            if p.isVisible():   # 管理画面を隠している間はプレビューの更新を省く
+                p.set_preview(snap.preview)
             enabled = [t for t in config.PART_TOGGLES if s[f"track_{t}"]]
             p.set_tracking(snap.status, enabled)
             if not enabled:
@@ -396,6 +510,12 @@ class Controller:
             f"カメラ取得→表示の遅延 {lat_s}（カメラ内部の露光・転送時間は含まない）<br>"
             f"メモリ {mem:.0f} MB（描画） + {mem_child:.0f} MB（検出プロセス） / CPU {cpu:.0f}%（描画プロセス、全コア比） / GPU 未計測")
         p.warn_lb.setText("\n".join(f"⚠ {w}" for w in self.warnings.values()))
+        if self.mini.isVisible():
+            self.mini.update_stats(f"<b style='color:{state_col}'>{self.state}</b>",
+                                   f"窓 {n}　入力 {cam_fps}　推論 {inf_fps}　描画 {rfps:.0f} fps",
+                                   list(self.warnings.values()))
+        if self.tray is not None:
+            self.tray.setToolTip(f"FACE WINDOWS — {self.state}（窓 {n}）")
 
     # ---------- benchmark ----------
     def run_benchmark(self, sizes=None, quit_after=False):

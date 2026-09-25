@@ -11,6 +11,8 @@ from . import config
 from . import geometry as geo
 
 CHOICE_LABELS = {
+    "panel_mode": {"full": "フル（すべての設定）", "mini": "ミニ（小さな操作バー）",
+                   "hidden": "非表示（トレイ / ホットキーで戻す）"},
     "layout_mode": {"swarm": "増殖（顔から窓が生まれて動き回る）",
                     "mirror": "ミラー（カメラ＝デスクトップ 1:1、部位の位置と大きさに窓を置く）"},
     "mirror_style": {"stamp": "ずれたら新しい窓を生成（窓は動かない）", "track": "窓が部位を追いかける"},
@@ -194,6 +196,14 @@ class ControlPanel(QWidget):
         self.state_lb.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         head.addWidget(t)
         head.addWidget(self.state_lb, 1)
+        for text, mode, tip in (("▁ ミニ", "mini", "小さな操作バーだけにする"),
+                                ("隠す", "hidden", "管理画面を隠す（トレイアイコン / Ctrl+Alt+W で戻す）")):
+            hb = QPushButton(text)
+            hb.setToolTip(tip)
+            hb.setFocusPolicy(Qt.NoFocus)
+            hb.setStyleSheet("padding: 2px 8px;")
+            hb.clicked.connect(lambda _=False, m=mode: ctl.set_panel_mode(m))
+            head.addWidget(hb)
         root.addLayout(head)
         self.render_lb = QLabel()
         self.render_lb.setWordWrap(True)
@@ -443,6 +453,7 @@ class ControlPanel(QWidget):
             section("PRESETS"), self.preset_combo, apply, save_p,
             section("SYSTEM"), save, load, init,
             b.check("panel_on_top", "管理ウィンドウを常に前面"),
+            b.combo("panel_mode", "管理画面の表示"),
             b.check("autostart", "起動時に自動START"),
             self.sys_lb, quit_b,
             QLabel("プライバシー：カメラ映像はディスクへの保存・外部送信を行いません。"),
@@ -481,3 +492,59 @@ class ControlPanel(QWidget):
                 st = status.get(p, "—")
                 chips.append(f"<span style='color:{colors.get(st, '#888')}'>{geo.PART_LABEL[p]}:{st}</span>")
         self.track_lb.setText(" ".join(chips) if chips else "<span style='color:#888'>検出対象がすべてOFF（新規生成なし）</span>")
+
+
+class MiniBar(QWidget):
+    """管理画面の最小表示：よく使う操作と状態だけの小さなバー。"""
+
+    def __init__(self, ctl):
+        super().__init__(None, Qt.Window)
+        self.ctl = ctl
+        self.setWindowTitle("FACE WINDOWS")
+        self.setStyleSheet(STYLE)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(6, 6, 6, 6)
+        root.setSpacing(4)
+        top = QHBoxLayout()
+        self.state_lb = QLabel()
+        self.stats_lb = QLabel()
+        self.stats_lb.setStyleSheet("color:#9aa4b2; font-size:8pt;")
+        top.addWidget(self.state_lb)
+        top.addWidget(self.stats_lb, 1)
+        root.addLayout(top)
+        row = QHBoxLayout()
+        row.setSpacing(4)
+        for text, name, fn, tip in (
+                ("▶", "start", ctl.start, "START"), ("❚❚", "pause", ctl.toggle_pause, "PAUSE"),
+                ("■ STOP", "stop", ctl.stop, "STOP（生成停止・窓回収・カメラ解放）"), ("✸", "", ctl.burst, "BURST"),
+                ("⤢ 設定", "", lambda: ctl.set_panel_mode("full"), "管理画面をすべて表示"),
+                ("隠す", "", lambda: ctl.set_panel_mode("hidden"), "非表示（トレイ / Ctrl+Alt+W で戻す）")):
+            bt = QPushButton(text)
+            if name:
+                bt.setObjectName(name)
+            bt.setToolTip(tip)
+            bt.setFocusPolicy(Qt.NoFocus)
+            bt.setMinimumHeight(30)
+            bt.clicked.connect(fn)
+            row.addWidget(bt)
+        root.addLayout(row)
+        self.warn_lb = QLabel()
+        self.warn_lb.setObjectName("warn")
+        self.warn_lb.setWordWrap(True)
+        self.warn_lb.hide()
+        root.addWidget(self.warn_lb)
+        QShortcut(QKeySequence(Qt.Key_Escape), self, ctl.stop)
+        QShortcut(QKeySequence("Ctrl+Q"), self, ctl.quit)
+        QShortcut(QKeySequence(Qt.Key_F5), self, ctl.start)
+        QShortcut(QKeySequence(Qt.Key_B), self, ctl.burst)
+
+    def closeEvent(self, e):
+        # ミニ表示を閉じてもアプリは終了しない：フル表示に戻す
+        e.ignore()
+        self.ctl.set_panel_mode("full")
+
+    def update_stats(self, state_html: str, stats: str, warnings: list[str]):
+        self.state_lb.setText(state_html)
+        self.stats_lb.setText(stats)
+        self.warn_lb.setText("\n".join(f"⚠ {w}" for w in warnings[:2]))
+        self.warn_lb.setVisible(bool(warnings))

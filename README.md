@@ -65,6 +65,7 @@ macOS は `./run.sh`。初回はカメラの使用許可を求められる（許
 | `Ctrl+Alt+S` | STOP（生成停止・全窓回収・カメラ解放） |
 | `Ctrl+Alt+Q` | アプリ終了 |
 | `Ctrl+Alt+P` | PAUSE 切替 |
+| `Ctrl+Alt+W` | 管理画面の表示 / 非表示（使用中なら `Ctrl+Alt+F12`） |
 | 管理画面上で `Esc` / `F5` / `B` / `Ctrl+Q` | STOP / START / BURST / 終了 |
 
 グローバルな緊急停止キーは Windows のみ。macOS では管理画面の STOP ボタン、または管理画面上の Esc / ⌘Q を使う。
@@ -72,6 +73,17 @@ macOS は `./run.sh`。初回はカメラの使用許可を求められる（許
 疑似ウィンドウはクリックを透過し、管理ウィンドウの上には描かない設定（既定 ON）なので、窓が大量でも管理画面は操作できる。
 
 ## 管理画面
+
+管理画面は3つの表示を切り替えられる（管理画面右上の「▁ ミニ」「隠す」ボタン、SYSTEM タブの「管理画面の表示」、トレイアイコンのメニュー）。
+
+| 表示 | 内容 |
+|---|---|
+| フル | すべての設定とカメラのプレビュー（右側、窓は管理画面を避けて描く） |
+| ミニ | 画面右上の小さなバー：状態・窓数・FPS、START / PAUSE / STOP / BURST、「⤢ 設定」でフルに戻る。窓は画面全体を使う |
+| 非表示 | 管理画面を消す。**タスクトレイのアイコン**（クリックで表示、右クリックで START / STOP / 終了などのメニュー）、または `Ctrl+Alt+W` で戻す。macOS はメニューバーのアイコンのメニューから戻す |
+
+非表示の間はプレビューの更新を止めて負荷を減らす。トレイアイコンもホットキーも使えない環境では、非表示の代わりにミニ表示になる（戻せなくならないように）。
+設定を保存すると、次回はその表示で起動する。
 
 | セクション | 内容 |
 |---|---|
@@ -240,6 +252,7 @@ started in the background it never gets the prompt and sits at "カメラ停止�
 | `Ctrl+Alt+S` | STOP (stop spawning, reclaim windows, release the camera) |
 | `Ctrl+Alt+Q` | Quit |
 | `Ctrl+Alt+P` | Toggle PAUSE |
+| `Ctrl+Alt+W` | Show / hide the control panel (`Ctrl+Alt+F12` if taken) |
 | `Esc` / `F5` / `B` / `Ctrl+Q` while the panel has focus | STOP / START / BURST / quit |
 
 Global hotkeys are Windows only. On macOS use the STOP button in the panel, or Esc / ⌘Q while
@@ -248,6 +261,16 @@ the panel — the STOP button and Esc still work. Pseudo windows pass clicks thr
 drawn over the panel (on by default), so the panel stays usable no matter how many windows there are.
 
 ## Control panel
+
+The panel has three views (the "▁ ミニ" / "隠す" buttons at its top right, "管理画面の表示" in the SYSTEM tab, or the tray icon menu).
+
+| View | Contents |
+|---|---|
+| Full | All settings and the camera preview (right side; windows avoid the panel) |
+| Mini | A small bar at the top right: state, window count, FPS, START / PAUSE / STOP / BURST, and "⤢ 設定" to go back to full. Windows use the whole screen |
+| Hidden | The panel disappears. Bring it back with the **tray icon** (click to show, right-click for START / STOP / quit) or `Ctrl+Alt+W`. On macOS use the menu of the menu-bar icon |
+
+While hidden, the preview is not updated to save CPU. If neither a tray icon nor the hotkey is available, "hidden" falls back to mini so the panel can always be recovered. Saving the settings keeps the view for the next launch.
 
 | Section | Contents |
 |---|---|

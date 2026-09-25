@@ -14,6 +14,11 @@ HOTKEYS = {
     1: ("stop", MOD_CONTROL | MOD_ALT, ord("S"), "Ctrl+Alt+S"),
     2: ("quit", MOD_CONTROL | MOD_ALT, ord("Q"), "Ctrl+Alt+Q"),
     3: ("pause", MOD_CONTROL | MOD_ALT, ord("P"), "Ctrl+Alt+P"),
+    4: ("panel", MOD_CONTROL | MOD_ALT, ord("W"), "Ctrl+Alt+W"),
+}
+# 他のアプリが使っていて登録できなかった時に試す予備のキー
+ALTERNATIVES = {
+    4: [(MOD_CONTROL | MOD_ALT, 0x7B, "Ctrl+Alt+F12")],
 }
 
 
@@ -24,6 +29,7 @@ class GlobalHotkeys(QObject):
         super().__init__()
         self.registered: list[str] = []
         self.failed: list[str] = []
+        self.labels: dict[str, str] = {}   # 動作名 → 実際に登録できたキー
         self._tid = None
         self._ready = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True, name="hotkeys")
@@ -39,8 +45,11 @@ class GlobalHotkeys(QObject):
         kernel32 = ctypes.WinDLL("kernel32")
         self._tid = kernel32.GetCurrentThreadId()
         for hid, (name, mods, vk, label) in HOTKEYS.items():
-            if user32.RegisterHotKey(None, hid, mods | MOD_NOREPEAT, vk):
-                self.registered.append(label)
+            for m, v, lb in [(mods, vk, label)] + ALTERNATIVES.get(hid, []):
+                if user32.RegisterHotKey(None, hid, m | MOD_NOREPEAT, v):
+                    self.registered.append(lb)
+                    self.labels[name] = lb
+                    break
             else:
                 self.failed.append(label)
         self._ready.set()
@@ -50,6 +59,10 @@ class GlobalHotkeys(QObject):
                 self.triggered.emit(HOTKEYS[msg.wParam][0])
         for hid in HOTKEYS:
             user32.UnregisterHotKey(None, hid)
+
+    def label(self, name: str) -> str | None:
+        """その動作に実際に割り当てられたキー（登録できなかったら None）。"""
+        return self.labels.get(name)
 
     def stop(self) -> None:
         if self._tid:
