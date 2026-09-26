@@ -319,6 +319,8 @@ class ControlPanel(QWidget):
         parts = [b.check(f"track_{k}", f"{label}") for k, label in config.PART_TOGGLES.items()]
         return page(
             section("TRACKING / Face & Body（検出対象。すべてOFFで新規生成なし）"), *parts,
+            b.slider("max_faces", "同時に検出する最大人数", 1, 10, 1, "{:.0f}", " 人"),
+            QLabel("カメラに写っている全員の顔・部位を検出する（1人増えるごとに検出が約5ms重くなる）。"),
             QLabel("Body は人物切り抜き（背景透過）、Arms/Hands は追加検出。重い場合は下の間引きを増やす。"),
             section("しきい値"),
             b.slider("det_confidence", "検出信頼度しきい値", 0.1, 0.95, 0.05, "{:.2f}"),
@@ -489,8 +491,12 @@ class ControlPanel(QWidget):
             if t not in enabled_toggles:
                 continue
             for p in parts:
-                st = status.get(p, "—")
-                chips.append(f"<span style='color:{colors.get(st, '#888')}'>{geo.PART_LABEL[p]}:{st}</span>")
+                # 全員分をまとめる：OK の人数（×N）、誰も OK でなければ HOLD / LOST
+                sts = [v for k, v in status.items() if geo.base_part(k) == p]
+                ok = sts.count("OK")
+                st = "OK" if ok else "HOLD" if "HOLD" in sts else "LOST" if sts else "—"
+                label = f"{geo.PART_LABEL[p]}:{st}" + (f"×{ok}" if ok > 1 else "")
+                chips.append(f"<span style='color:{colors.get(st, '#888')}'>{label}</span>")
         self.track_lb.setText(" ".join(chips) if chips else "<span style='color:#888'>検出対象がすべてOFF（新規生成なし）</span>")
 
 

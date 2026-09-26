@@ -472,3 +472,57 @@ def test_stamp_native_mode_recycles_old_native_windows():
     assert all(w.backend == "native" for w in e.wins)
     assert e.native_count() <= 6
     assert all(e._mirror[(p, 0)].backend == "native" for p in ("face", "left_eye", "mouth"))
+
+
+# ---------- 複数人 ----------
+def test_part_key_helpers():
+    assert geo.part_key("face", 0) == "face" and geo.part_key("left_eye", 2) == "left_eye#3"
+    assert geo.base_part("left_eye#3") == "left_eye" and geo.person_of("left_eye#3") == 2
+    assert geo.person_of("mouth") == 0 and geo.part_label("mouth#2") == "Mouth #2"
+
+
+def test_assign_people_keeps_ids_when_order_changes():
+    prev = {0: (100, 100, 80), 1: (500, 120, 90)}
+    # 検出順が入れ替わっても、近い方の番号を引き継ぐ
+    assert geo.assign_people(prev, [(505, 125, 90), (98, 102, 80)]) == [1, 0]
+    # 新しい人は、覚えている番号と重ならない番号
+    ids = geo.assign_people(prev, [(100, 100, 80), (900, 100, 80)])
+    assert ids[0] == 0 and ids[1] not in (0, 1)
+    # 遠すぎれば別人
+    assert geo.assign_people({0: (100, 100, 50)}, [(600, 100, 50)]) != [0]
+
+
+def multi_snap(n=3):
+    img = object()
+    parts = {}
+    for i in range(n):
+        for base in ("face", "left_eye", "mouth"):
+            parts[geo.part_key(base, i)] = PartState(img, (0.2 + 0.3 * i, 0.5), 0.15, True)
+    return Snapshot(parts=parts, face_center=(0.5, 0.5), frame_size=(1280, 720), people=n)
+
+
+def test_swarm_spawns_from_everyone():
+    e = make_engine(spawn_rate=1000.0, motion_enabled=False, max_windows=300, adaptive=False)
+    t = 0.0
+    for _ in range(30):
+        t += 1 / 60
+        e.update(1 / 60, t, multi_snap(3))
+    assert {geo.person_of(w.part) for w in e.wins} == {0, 1, 2}
+
+
+def test_mirror_places_windows_for_each_person():
+    e = make_mirror(mirror_style="stamp")
+    snap = multi_snap(3)
+    e.update(1 / 60, 0.0, snap)
+    assert len(e.wins) == 9                                    # 3人 × 3部位
+    for w in e.wins:
+        assert (w.x, w.y) == pytest.approx(e.mirror_target(w.part, snap)[:2])
+    # 人ごとにまとまって重なる（2人目の顔は1人目の口より手前）
+    order = [w.part for w in e.wins]
+    assert order.index("mouth") < order.index("face#2")
+
+
+def test_mouth_event_bursts_from_that_persons_mouth():
+    e = make_engine(spawn_rate=0.0, burst_count=20, adaptive=False)
+    e.update(0.016, 0.0, multi_snap(3), events=[("mouth_open", 0.0, "mouth#3")])
+    assert e.wins and all(w.part == "mouth#3" for w in e.wins)

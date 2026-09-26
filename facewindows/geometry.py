@@ -50,6 +50,45 @@ TOGGLE_PARTS = {
 CROP_LONG_SIDE = 240
 
 
+# ---- 複数人：部位のキーは 1人目 "face"、2人目以降 "face#2", "face#3" ... ----
+def part_key(base: str, person: int) -> str:
+    return base if person == 0 else f"{base}#{person + 1}"
+
+
+def base_part(key: str) -> str:
+    return key.split("#", 1)[0]
+
+
+def person_of(key: str) -> int:
+    return int(key.split("#", 1)[1]) - 1 if "#" in key else 0
+
+
+def part_label(key: str) -> str:
+    base, n = base_part(key), person_of(key)
+    label = PART_LABEL.get(base, base)
+    return label if n == 0 else f"{label} #{n + 1}"
+
+
+def assign_people(prev: dict, faces: list, max_dist: float = 1.2) -> list[int]:
+    """顔（中心x, 中心y, 幅）を、前フレームの人（id → (x, y, 幅)）に近い順に対応付けて番号を返す。
+    MediaPipe は毎回並び順が変わりうるので、番号を引き継がないと窓やブレ補正が人をまたいで飛ぶ。"""
+    ids = [-1] * len(faces)
+    pairs = sorted(
+        (np.hypot(fx - px, fy - py) / max(pw, fw, 1.0), i, pid)
+        for i, (fx, fy, fw) in enumerate(faces) for pid, (px, py, pw) in prev.items())
+    used = set()
+    for d, i, pid in pairs:
+        if d > max_dist or ids[i] != -1 or pid in used:
+            continue
+        ids[i] = pid
+        used.add(pid)
+    free = (n for n in range(1000) if n not in used and n not in prev)
+    for i in range(len(ids)):
+        if ids[i] == -1:
+            ids[i] = next(free)
+    return ids
+
+
 @dataclass
 class Box:
     """生画像ピクセル座標の回転矩形。angle はラジアン（画像座標、時計回り正）。"""

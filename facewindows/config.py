@@ -44,6 +44,7 @@ DEFAULTS: dict = {
     "track_body": False,
     "track_arms": False,
     "track_hands": False,
+    "max_faces": 5,               # 同時に検出する最大人数（カメラに写っている全員）
     "det_confidence": 0.5,        # 検出信頼度しきい値（MediaPipe min_*_confidence）
     "motion_enabled": True,       # 動きを生成トリガーに使う
     "motion_threshold": 25,       # フレーム差分の画素しきい値（0-255）

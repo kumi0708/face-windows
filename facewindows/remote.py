@@ -133,7 +133,7 @@ class TrackerClient:
             snap = msg["snap"]
             if snap is None:
                 continue
-            snap.parts = {k: PartState(_qimage(v.image, k == "body"), v.pos, v.size, v.live)
+            snap.parts = {k: PartState(_qimage(v.image, k.split("#", 1)[0] == "body"), v.pos, v.size, v.live)
                           for k, v in snap.parts.items()}
             if snap.preview is not None:
                 snap.preview = _qimage(snap.preview, False)

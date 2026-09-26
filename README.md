@@ -89,7 +89,7 @@ macOS は `./run.sh`。初回はカメラの使用許可を求められる（許
 |---|---|
 | 常時表示 | 状態、描画方式、検出プレビュー（部位ごとの枠・HOLD/LOST表示・動きの位置）、START/PAUSE/STOP/RESET/BURST、部位 ON/OFF、最大数・生成レート・移動速度・動きモード、窓数・入力/推論/描画FPS、警告 |
 | CAMERA | カメラ選択（DirectShow の名前を表示）、解像度、入力FPS、左右反転、再接続 |
-| TRACKING | Face / Left eye / Right eye / Nose / Mouth / Body / Arms / Hands、検出信頼度しきい値、ブレ補正（One Euro）、回転補正、見失った時の保持時間、Body/Hands の間引き、Motion ON/OFF・動き判定しきい値・モーション感度、口を開けたら/頭を振ったら BURST |
+| TRACKING | Face / Left eye / Right eye / Nose / Mouth / Body / Arms / Hands、同時に検出する最大人数（既定 5 人）、検出信頼度しきい値、ブレ補正（One Euro）、回転補正、見失った時の保持時間、Body/Hands の間引き、Motion ON/OFF・動き判定しきい値・モーション感度、口を開けたら/頭を振ったら BURST |
 | GENERATION | 最大同時表示数、生成レート（個/秒）、BURST数、寿命と揺らぎ、生成位置（顔の周囲／部位付近／ランダム／動きの位置）、散らばり、拡大率、サイズと揺らぎ、顔全体の比率、同じパーツの複製比率 |
 | MOTION | 追従／飛散／ランダム漂流／位置固定／混合、移動速度、追従速度、追従遅れのばらつき、飛散、ランダム性、減衰、顔の動きの影響、画面端（跳ね返り／反対側へ／消滅／再配置） |
 | DISPLAY | 表示モード（増殖／ミラー）とミラーの設定、描画方式（疑似／OS実／混合）、実ウィンドウ上限、表示モニター、スタイル（Win11 ライト／ダーク／macOS風／Win95風／フレームレス。既定は動かしている OS に合わせる）、不透明度、影、スナップショット窓・ディレイ窓・残像の割合 |
@@ -158,6 +158,7 @@ run.bat --preset "ミラー（顔を再構成）" --set mirror_trails=5 --autost
 - GPU 使用率は計測していない。CPU 使用率は描画プロセス分のみ。
 - 描画 FPS の上限は約 67（タイマー 15ms）。300 個以上では 30fps を下回る（自動負荷調整で抑制可能）。
 - Hands の左右判定は MediaPipe の推定に依存する。Body/Arms/Hands は既定 OFF。
+- カメラに写っている全員（最大人数まで）を検出し、人ごとに窓を出す（2人目以降の窓のタイトルは「Face #2」など）。人の番号は、前のフレームでいちばん近くにいた顔から引き継ぐ。人が大きく重なる・すれ違うと番号が入れ替わることがある。1人増えるごとに顔の検出が約 5ms 重くなる（2人で推論 28fps を実測）。顔検出モデルは近距離用（MediaPipe の short range、目安 2m 以内）なので、遠くの小さい顔は検出できないことがある。
 - 顔が画面外に出ると、保持時間の後に該当する窓は自然に消える（最終映像のまま縮小フェード）。
 
 ---
@@ -276,7 +277,7 @@ While hidden, the preview is not updated to save CPU. If neither a tray icon nor
 |---|---|
 | Always visible | State, rendering mode, detection preview (per-part boxes, HOLD/LOST, motion position), START/PAUSE/STOP/RESET/BURST, per-part on/off, max count, spawn rate, speed, motion mode, window count, input/inference/render FPS, warnings |
 | CAMERA | Camera selection (DirectShow names on Windows), resolution, input FPS, horizontal flip, reconnect |
-| TRACKING | Face / Left eye / Right eye / Nose / Mouth / Body / Arms / Hands, detection confidence threshold, jitter smoothing (One Euro), rotation correction, hold time when a part is lost, Body/Hands frame skipping, motion on/off and thresholds, BURST on open mouth / head shake |
+| TRACKING | Face / Left eye / Right eye / Nose / Mouth / Body / Arms / Hands, maximum number of people (default 5), detection confidence threshold, jitter smoothing (One Euro), rotation correction, hold time when a part is lost, Body/Hands frame skipping, motion on/off and thresholds, BURST on open mouth / head shake |
 | GENERATION | Max concurrent windows, spawn rate (per second), BURST size, lifetime and variance, spawn position (around the face / near the part / random / at the motion), scatter, scale, size and variance, share of whole-face windows, share of duplicated parts |
 | MOTION | Follow / scatter / random drift / fixed / mixed, speed, follow speed, follow lag variance, scatter, randomness, damping, influence of head movement, screen edges (bounce / wrap / vanish / respawn) |
 | DISPLAY | Display mode (swarm / mirror) and mirror settings, rendering mode (pseudo / real / hybrid), real-window cap, target monitor, style (Win11 light / dark / macOS / Win95 / frameless — defaults to match the OS you are running on), opacity, shadow, share of snapshot / delayed / afterimage windows |
@@ -370,5 +371,6 @@ Measured on Windows (real camera, pseudo windows): 67fps at 20 windows, 54fps at
 - Render FPS is capped near 67 (15ms timer). Beyond 300 windows it drops below 30fps (adaptive
   load control can hold it back).
 - Handedness for Hands relies on MediaPipe's estimate. Body/Arms/Hands are off by default.
+- Everyone in the camera view (up to the maximum) is detected and gets their own windows (titles like "Face #2" for the second person onward). Person numbers are carried over from the nearest face in the previous frame, so they can swap when people overlap or cross. Each extra person adds about 5 ms of face detection (28 fps inference measured with two people). The face detector is a short-range model (MediaPipe short range, roughly within 2 m), so small, distant faces may be missed.
 - When your face leaves the frame, its windows disappear naturally after the hold time (shrinking
   and fading with their last image).

@@ -21,6 +21,12 @@ MIRROR_Z = ["body", "left_arm", "right_arm", "face", "nose", "left_eye", "right_
             "left_hand", "right_hand"]
 
 
+def _mirror_z(key: str) -> tuple:
+    """ミラーの重なり順：人ごとにまとめ、人の中は 身体 → 顔 → 目・口 → 手。"""
+    base = geo.base_part(key)
+    return geo.person_of(key), MIRROR_Z.index(base) if base in MIRROR_Z else 99
+
+
 @dataclass
 class Win:
     id: int
@@ -52,7 +58,7 @@ class Win:
 
     @property
     def title(self) -> str:
-        label = geo.PART_LABEL.get(self.part, self.part)
+        label = geo.part_label(self.part)
         if self.mirror_key is not None:
             return label if self.mirror_key[1] == 0 else f"{label} — echo {self.mirror_key[1]}"
         return f"{label} — {self.id % 1000:03d}"
@@ -90,9 +96,11 @@ class Engine:
         return min(max(x, x0), x1), min(max(y, y0), y1)
 
     def enabled_parts(self, snap) -> list[str]:
+        """今検出できていて、TRACKING で ON の部位のキー（全員分。"face", "face#2", ...）。"""
         s = self.s
-        on = [p for t, parts in geo.TOGGLE_PARTS.items() if s[f"track_{t}"] for p in parts]
-        return [p for p in on if p in snap.parts]
+        on = {p for t, parts in geo.TOGGLE_PARTS.items() if s[f"track_{t}"] for p in parts}
+        return sorted((k for k in snap.parts if geo.base_part(k) in on),
+                      key=lambda k: (geo.person_of(k), k))
 
     def alive_count(self) -> int:
         return len(self.wins)
@@ -114,9 +122,10 @@ class Engine:
         if self._last_part in parts and random.random() < float(self.s["duplicate_bias"]):
             return self._last_part
         fr = float(self.s["face_ratio"])
-        others = [p for p in parts if p != "face"]
-        if "face" in parts and (not others or random.random() < fr):
-            return "face"
+        faces = [p for p in parts if geo.base_part(p) == "face"]
+        others = [p for p in parts if geo.base_part(p) != "face"]
+        if faces and (not others or random.random() < fr):
+            return random.choice(faces)
         return random.choice(others or parts)
 
     def _choose_backend(self) -> str:
@@ -182,8 +191,8 @@ class Engine:
         else:
             x, y = px + random.gauss(0, spread * 0.6), py + random.gauss(0, spread * 0.6)
 
-        aspect = geo.PART_SHAPE[part][0]
-        w = float(s["size"]) * PART_SCALE.get(part, 1.0) * max(0.2, 1 + random.uniform(-1, 1) * float(s["size_jitter"]))
+        aspect = geo.PART_SHAPE[geo.base_part(part)][0]
+        w = float(s["size"]) * PART_SCALE.get(geo.base_part(part), 1.0) * max(0.2, 1 + random.uniform(-1, 1) * float(s["size_jitter"]))
         h = w / aspect
         if mode is None:
             mode = s["motion_mode"]
@@ -296,10 +305,12 @@ class Engine:
                 self.spawn(snap, now, direction=direction)
             if mirror and not s["mirror_reactions"]:
                 events = ()   # ミラー表示：窓はミラーの位置だけ（勝手に飛び回る窓を出さない）
-            for kind, _t in events:
-                if kind == "mouth_open" and s["mouth_burst"] and "mouth" in snap.parts:
-                    mx, my = self.to_screen(*snap.parts["mouth"].pos)
-                    self.burst(snap, now, max(1, int(s["burst_count"]) // 2), part="mouth",
+            for ev in events:
+                kind = ev[0]
+                mouth = ev[2] if len(ev) > 2 else "mouth"   # 口を開けた人の口
+                if kind == "mouth_open" and s["mouth_burst"] and mouth in snap.parts:
+                    mx, my = self.to_screen(*snap.parts[mouth].pos)
+                    self.burst(snap, now, max(1, int(s["burst_count"]) // 2), part=mouth,
                                origin=(mx, my), mode="scatter")
                 elif kind == "head_move" and s["head_burst"]:
                     self.burst(snap, now, max(1, int(s["burst_count"]) // 3), mode="scatter",
@@ -441,7 +452,7 @@ class Engine:
         cy = (y0 + y1) / 2 + (ps.pos[1] - 0.5) * fh * sy
         k = float(s["mirror_scale"])
         bw = ps.size * fw
-        return cx, cy, bw * sx * k, bw / geo.PART_SHAPE[part][0] * sy * k
+        return cx, cy, bw * sx * k, bw / geo.PART_SHAPE[geo.base_part(part)][0] * sy * k
 
     def _update_mirror(self, dt: float, now: float, snap) -> None:
         if self.s["mirror_style"] == "stamp":
@@ -457,7 +468,7 @@ class Engine:
         interval = float(s["mirror_stamp_interval"])
         parts = self.enabled_parts(snap) if snap.frame_size[0] else []
         order: list[Win] = []
-        for part in sorted(parts, key=lambda p: MIRROR_Z.index(p) if p in MIRROR_Z else 99):
+        for part in sorted(parts, key=_mirror_z):
             tx, ty, tw, th = self.mirror_target(part, snap)
             key = (part, 0)
             cur = self._mirror.get(key)
@@ -514,7 +525,7 @@ class Engine:
         parts = self.enabled_parts(snap) if snap.frame_size[0] else []
         wanted = set()
         order: list[Win] = []
-        for part in sorted(parts, key=lambda p: MIRROR_Z.index(p) if p in MIRROR_Z else 99):
+        for part in sorted(parts, key=_mirror_z):
             tx, ty, tw, th = self.mirror_target(part, snap)
             for k in range(n, -1, -1):          # 奥から：古い残像 → 本体
                 key = (part, k)
