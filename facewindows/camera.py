@@ -30,14 +30,30 @@ def _quiet_stderr():
         os.close(saved)
 
 
+def _mac_camera_names() -> list[str]:
+    """AVFoundation が返すカメラ名。内蔵カメラと iPhone の連係カメラを見分けるために使う。"""
+    try:
+        import AVFoundation as avf
+    except ImportError:
+        return []
+    names = ("AVCaptureDeviceTypeBuiltInWideAngleCamera", "AVCaptureDeviceTypeExternal",
+             "AVCaptureDeviceTypeContinuityCamera", "AVCaptureDeviceTypeDeskViewCamera")
+    kinds = [getattr(avf, n) for n in names if hasattr(avf, n)]
+    session = avf.AVCaptureDeviceDiscoverySession.discoverySessionWithDeviceTypes_mediaType_position_(
+        kinds, avf.AVMediaTypeVideo, 0)
+    return [str(d.localizedName()) for d in session.devices()]
+
+
 def list_cameras(max_probe: int = 4) -> list[tuple[int, str]]:
-    """(index, 名前) の一覧。Windows は DirectShow の名前、それ以外は番号を順に開いて確かめる。"""
+    """(index, 名前) の一覧。Windows は DirectShow、macOS は AVFoundation の名前を使い、
+    それ以外は番号を順に開いて確かめる。"""
     if IS_WINDOWS:
         try:
             from pygrabber.dshow_graph import FilterGraph
             return list(enumerate(FilterGraph().get_input_devices()))
         except Exception:
             pass
+    mac_names = _mac_camera_names() if IS_MAC else []
     found = []
     with _quiet_stderr():
         for i in range(max_probe):
@@ -45,21 +61,35 @@ def list_cameras(max_probe: int = 4) -> list[tuple[int, str]]:
             ok = cap.isOpened()
             cap.release()
             if ok:
-                found.append((i, f"Camera {i}"))
+                found.append((i, mac_names[i] if i < len(mac_names) else f"Camera {i}"))
             elif IS_MAC and found:
                 break   # AVFoundation の番号は連番。見つかった分の先は存在しない
                         # （0 番が使用中・権限待ちで開けない場合があるので、1台も無い間は続ける）
     return found
 
 
-def warmup_mac_authorization(index: int) -> None:
-    """macOS の AVFoundation 権限ダイアログはメインスレッドの run loop からしか出せない。
-    Camera はバックグラウンドスレッドで開くため、その前に呼び出し元のスレッド（プロセスの
-    メインスレッド）で一度だけ開いて閉じ、権限リクエストをここで済ませておく。"""
+def warmup_mac_authorization(index: int, timeout: float = 60.0) -> None:
+    """macOS のカメラ許可をここで取り切る。呼び出し元はプロセスのメインスレッドであること。
+
+    OpenCV も許可を要求はするが、返事を待たずに 1 秒未満で諦めるため、ダイアログに答える間が
+    ない（OS 更新などで許可が消えると、以後ずっと開けなくなる）。そこで AVFoundation に直接
+    要求し、完了ハンドラが呼ばれるまで run loop を回して待つ。"""
     if not IS_MAC:
         return
-    cap = cv2.VideoCapture(index, BACKEND)
-    cap.release()
+    try:
+        import AVFoundation as avf
+        from CoreFoundation import CFRunLoopRunInMode, kCFRunLoopDefaultMode
+    except ImportError:   # pyobjc が無い環境では OpenCV 任せにする
+        cv2.VideoCapture(index, BACKEND).release()
+        return
+    if avf.AVCaptureDevice.authorizationStatusForMediaType_(avf.AVMediaTypeVideo) != 0:
+        return   # 許可済み・拒否済み・制限中。拒否なら Camera 側がエラーを出す
+    answered: list = []
+    avf.AVCaptureDevice.requestAccessForMediaType_completionHandler_(
+        avf.AVMediaTypeVideo, lambda granted: answered.append(bool(granted)))
+    limit = time.monotonic() + timeout
+    while not answered and time.monotonic() < limit:
+        CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.1, False)
 
 
 class Camera(threading.Thread):

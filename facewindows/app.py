@@ -75,7 +75,9 @@ class Controller:
         self.ui_timer.timeout.connect(self.update_ui)
         self.ui_timer.start(66)
 
-        self.start_capture()
+        # イベントループが回り始めてから開く。macOS のカメラ許可ダイアログは
+        # アプリが動き出す前に要求しても表示されず、黙って拒否されるため。
+        QTimer.singleShot(0, self.start_capture)
         if self.settings["autostart"] or args.autostart:
             QTimer.singleShot(300, self.start)
         if args.bench:
@@ -232,7 +234,12 @@ class Controller:
     def start_capture(self):
         if self.tracker is not None:
             return
+        from .camera import warmup_mac_authorization
         from .remote import TrackerClient
+        if self.args.source is None:
+            # macOS の許可ダイアログは前面のアプリにしか出ない。検出プロセス（子）では
+            # 出ないまま拒否されるので、GUI 側でここで取り切ってから子を起こす。
+            warmup_mac_authorization(int(self.settings["camera_index"]))
         self.tracker = TrackerClient(self.settings, source=self.args.source)
 
     def stop_capture(self):
